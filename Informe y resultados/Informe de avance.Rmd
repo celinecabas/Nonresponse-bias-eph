@@ -1,0 +1,202 @@
+---
+output: 
+  pdf_document:
+    number_sections: true
+header-includes:
+  - \usepackage[spanish]{babel}
+  - \usepackage{float} % Para fijar los cuadros
+  - \floatplacement{figure}{H}  
+  - \floatplacement{table}{H} 
+---
+
+```{r setup, include=FALSE, message=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+library(ggplot2)
+library(ggthemr)
+library(kableExtra)
+library(modelsummary)
+library(tidyverse)
+library(data.table)
+```
+
+```{=tex}
+\begin{center}
+    \Large Maestría en Estadística Aplicada \\
+    \Large Universidad Nacional de Córdoba \\
+\end{center}
+```
+
+\begin{figure}
+\centering
+\includegraphics[width=0.4\textwidth]{logoUNC_1.jpg}
+\end{figure}
+
+```{=tex}
+\begin{center} 
+
+\LARGE \textbf{Identificación de potencial sesgo por no respuesta en encuestas de hogares del nordeste argentino sobre el ingreso familiar y el nivel de pobreza}\\
+
+\
+
+\Large Documento de trabajo \\
+
+\Large Primer avance de resultados
+
+\end{center}
+\vspace*{2cm}
+```
+
+```{=tex}
+\begin{center}
+\noindent\begin{tabular}{@{}ll}
+    Tesista & Lic. Celine Iliana Cabás\\
+    Directora &  Dra. Patricia Caro\\
+    Co-Director & Dr. Carlos Matías Hisgen
+    \end{tabular}
+\end{center}
+\vspace*{2cm}
+```
+
+```{=tex}
+\begin{center}
+    \large Agosto 2024
+\end{center}
+```
+
+```{=tex}
+\newpage
+\tableofcontents
+\newpage
+```
+
+
+# Introducción
+
+# Antecedentes
+
+# Problema y objetivos
+
+# Metodología
+
+# Resultados
+
+Se presentan resultados preliminares del trabajo. 
+
+```{r}
+# Cargamos resultados
+load("Resultados.RData")
+# Tema para los gráficos
+ggthemr("sky")
+```
+
+## Caracterización de estructuras de respuesta
+
+Trabajando con la variable de cantidad total de entrevistas realizadas por el hogar en el período, podemos tener una aproximación de cuál es la propensión de los hogares a responder. Analizamos esta propensión por aglomerado urbano teniendoe en cuenta la proporción de hogares en la muestra según el número de entrevistas realizadas (Tabla 1). 
+
+Vemos entonces que alrededor del 5% de los hogares contesta sólo una vez en Corrientes, Posadas y Formosa mientras que para Gran Resistencia este porcentaje sube a casi 14%. Además, aproximadamente el 10% de los hogares responde dos veces en estas mismas localidades mientras que en Gran Resistencia tenemos que el 22% responde sólo dos veces. En el caso de tres encuestas realizadas, las proporciones de hogares en cada categoría son bastantes variadas entre aglomerados. Sin embargo cuando se trata de completar el esquema de la encuesta, es decir, contestar los cuatro trimestres del esquema de rotación de hogares, Gran Resistencia se ubica en aproximadamente 32% mientras que los demás aglomerados superan el 60%.
+
+```{r}
+kbl(tabla1, 
+    booktabs=TRUE,
+    caption = "Proporción de hogares según cantidad total de entrevistas realizadas por aglomerado urbano",
+    format = "latex", digits = 4) %>% 
+  kable_styling(latex_options = c("hold_position")) %>% 
+  add_header_above(c(" "=1,"Entrevistas realizadas"=4))
+```
+
+Si pasamos a analizar esta estructura de respuesta en el tiempo, vemos que los aglomerados de Corrientes, Formosa y Posadas mantienen un porcentaje de hogares con esquema completo superior al 60% en casi todos los casos mientras que Gran Resistencia presenta una estructura muy distinta. La distribución de proporciones de hogares por categoría es bastante cambiante además de que en la mayoría de los casos los hogares con esquema de respuesta completo no superan el 50%.
+
+```{r, fig.cap="Estructura de respuesta por aglomerado urbano del NEA, período 2018-2022.", fig.align='center', fig.height=5}
+grafico1
+```
+
+## Identificación de sesgo por no respuesta
+
+En primera instancia, planteamos test bivariados de asociación para evaluar si existe relación entre el número de entrevistas realizadas como variable categórica y algunos factores de interés. De las pruebas resulta que se rechaza la hipótesis nula de independencia entre el número de entrevistas realizadas y que el hogar sea o no pobre, el nivel educativo del jefe de hogar, que el jefe sea casado o unido, el estado de ocupación y si la vivienda es casa o departamento. Este resultado nos da un primer indicio de que la propensión a responder no se comporta de manera aleatoria en relación a estas variables medidas por la encuesta.
+
+```{r, fig.align='center'}
+kbl(tabla2, align = c("l","c","c","c"),
+    format = "latex",
+    booktabs = TRUE,
+    caption = "Resultados de pruebas chi-cuadrado de asociación de variables.")
+```
+
+
+En segunda instancia y con el objetivo de detectar el sesgo por no respuesta, se plantea un modelo lineal generalizado multinomial de respuesta politómica ordinal que busca testear relaciones estadísticamente significativas entre el número de entrevistas realizadas (del 1 al 4) y el ingreso además de otras variables de interés socioeconómico. 
+
+Del modelo ajustado resulta que la chance de contestar pocas veces en vez de varias veces o completar el esquema de entrevistas aumenta en un 0.265% a medida que el ingreso per cápita familiar en términos reales aumenta en un 1% en Gran Resistencia. En Corrientes, Formosa y Posadas este efecto es 0.188%, 0.273% y 0.262% respectivamente. Por otro lado, la chance de contestar pocas veces en vez de varias o bien completar el esquema aumenta en 0.074% a medida que el hogar promedio suma un miembro adicional. 
+
+```{r}
+cuadro_modelos_glm <- 
+  modelsummary(modelos.glm.multi, gof_map = "all", 
+               stars = T, output = "data.frame",
+               exponentiate = T,
+               shape = term ~ model + statistic,
+               estimate = "{estimate}{stars}",
+               statistic = "p.value")
+cuadro_modelos_glm <- cuadro_modelos_glm[,-1]
+kbl(cuadro_modelos_glm, 
+    align = c("l","c","c","c","c","c","c","c","c"),
+    booktabs = TRUE, 
+    format="latex",
+    caption = "Modelos para cantidad de entrevistas realizadas por aglomerado urbano.",
+    col.names = c(" ","OR","p","OR","p","OR","p","OR","p")) %>% 
+  kable_styling(latex_options = "striped") %>% 
+  row_spec(4,bold=TRUE) %>% 
+  add_header_above(c(" "=1,
+                     "Gran Rcia"=2, "Corrientes"=2, "Formosa"=2, "Posadas"=2))
+```
+
+
+En tercera instancia, como proceso exploratorio del sesgo por no respuesta, ajustamos modelos para explicar el ingreso per cápita familiar en términos reales (deflactado). Dado que el ingreso, y posteriormente el nivel de pobreza, son nuestras principales variables de interés en este estudio analizamos si controlando esta variable por factores de influencia puede captarse una dependencia de las entrevistas realizadas.
+
+Se presentan nuevamente cuatro modelos, uno para cada aglomerado, y se incluyen como variables de control a las horas trabajadas, el nivel educativo del jefe de hogar, su categoría y calificación ocupacional, otros ingresos no laborales, una binaria de sexo (mujer=1, hombre=0) y una categórica del año para controlar por posibles dinámicas en el tiempo. Por último, se incorpora la variable $NRO\_REP$ que mide el número de entrevistas realizadas.
+
+Vemos que el número total de entrevistas realizadas en el período analizado tiene un coeficiente significativo sobre el nivel de ingreso, que nos indica que a medida que aumentan las entrevistas realizadas por hogar se reduce el nivel de ingreso. (El coeficiente indica relación negativa controlando por lo demás, pero ver si es correcto presentar esto sino quedarnos con el mlg multinomial justificado en la teoría dada la relación de causalidad. Las entrevistas realizadas no influyen en el nivel de ingreso sino viceversa).
+
+```{r, fig.align='center'}
+cuadro_modelos_panel <- 
+  modelsummary(modelos_panel, stars = T, output = "dataframe",
+               estimate="{estimate}{stars}",
+               statistic = "conf.int")
+cuadro_modelos_panel <- cuadro_modelos_panel %>% 
+  mutate(term = ifelse(duplicated(term), "", term))
+cuadro_modelos_panel <- cuadro_modelos_panel[,c(2,4,5,6,7)]
+setnames(cuadro_modelos_panel, "term"," ")
+kbl(cuadro_modelos_panel, 
+    align = c("l","c","c","c","c"),
+    booktabs = TRUE, 
+    format="latex",
+    caption = "Modelos para logaritmo del ingreso per cápita familiar deflactado por aglomerado urbano.") %>% 
+  kable_styling(latex_options = "striped") %>% 
+  row_spec(39:40,bold=TRUE)
+```
+
+
+## Métodos de reponderación de la muestra
+
+Según lo hallado en la sección anterior, la distribución del ingreso per cápita familiar puede verse sesgada y no reflejar la distribución real. Por lo tanto, para poder analizar el nivel de ingreso de los hogares y, por ende, el nivel de pobreza monetaria por aglomerado, debemos formular alguna corrección del sesgo por no respuesta. La idea es implementar un método de reponderación de la muestra basado en la probabilidad de respuesta de los hogares, corrigiendo el factor de expansión de la encuesta PONDIH.
+
+Actualmente y siguiendo la literatura de *response propensity modeling* que proponen modelos alternativos para predecir la probabilidad de respuesta, se está trabajando con un modelo logístico, un árbol de decisión y un bosque aleatorio. La idea sería comparar medidas de la clasificación para quedarnos con el mejor modelo que prediga la probabilidad de que el hogar complete el esquema de la encuesta. Se busca predecir una binaria indicadora de la categoría 4 en número de entrevistas realizadas, dado que son las diferencias más marcadas que observamos entre aglomerados y refleja la propensión a responder que tienen los hogares.
+
+Una vez seleccionado el mejor modelo, se corrigen los factores de expansión. Por el momento se está implementando la metodología más tradicional de dividir el ponderador por la probabilidad de respuesta, y reescalando para mantener la representación de viviendas por área muestral.
+
+Corregidos los ponderadores, se pretende comparar las distribuciones del ingreso per cápita familiar acumulado para ver posibles cambios pre y post corrección por no respuesta y balanceo de la muestra. Pasando posteriormente a analizar los cambios en el nivel de pobreza monetaria que depende del ingreso.
+
+
+# Tareas pendientes/dudas por resolver
+
+* Probar algún método como stepwise que funcione con los modelos multinomiales para intentar mejorar la bondad de ajuste del modelo. Igualmente este quedaría como modelo más bien descriptivo para la interpretación de los OR.
+
+* Como se está trabajando con una muestra, ver alguna manera de robustecer los resultados con boostrap por ejemplo (si es apropiado). Para el modelo multinomial principalmente, vi algunos papers que lo hacen así.
+
+* En principio probar la corrección del PONDIH con el método propuesto (dividiéndolo por la probabilidad de que el hogar complete el esquema de la encuesta y reescalando para mantener los pesos de las áreas muestrales), pero hay otros cálculos alternativos que usan la probabilidad de respuesta también. Investigar un poco esto.
+
+* Ver métodos de optimización de hiperparámetros y validación cruzada para los modelos de predicción de la probabilidad de respuesta completa. Incluir esto previo al análisis de medidas de bondad de ajuste de la clasificación para mejorar los modelos.
+
+* La idea previamente a ver resultados sobre pobreza es ver cómo se modifica la distribución del ingreso per cápita familiar. Principalmente la distribución acumulada para analizar las colas (percentiles vs ingreso acumulado), hasta ahora va quedando que la distribución corregida queda por debajo de la original lo que indicaría que los percentiles de más bajos ingresos (influyentes para el nivel de pobreza) acumulan más ingreso. Vengo usando la función wtd.Ecdf() que calcula la distribución empírica ponderada pero no sé si es muy apropiada porque las curvas no quedan suavizadas, al contrario parecen sobreajustadas. Probé usando GMM (Método generalizado de momentos) para una gamma o normal inversa pero no estoy segura si ese método admite ponderaciones.
+
+
+
+
+

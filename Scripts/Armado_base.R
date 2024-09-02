@@ -1,0 +1,117 @@
+# Armado del panel de datos EPH Usuario ####
+
+library(data.table)
+
+# Cargamos los nombres de los archivos
+files <- list.files("EPH_Base_Usuario")
+archivos <- c()
+for (i in 1:length(files)){
+  archivo <- list.files(paste0("EPH_Base_Usuario/",files[i]),full.names = T)
+  archivos <- c(archivo,archivos)
+}
+
+# Separamos las rutas de los archivos individuales y de hogar
+archivos_individual <- archivos[grepl("individual|personas",archivos, ignore.case = T)]
+archivos_hogar <- archivos[grepl("hogar",archivos, ignore.case = T)]
+
+# Bases individuales
+individual <- data.table()
+for (i in 1:length(archivos_individual)){
+  base <- fread(archivos_individual[i])
+  individual <- rbind(individual, base, fill=T)
+  rm(base)
+}
+
+# Bases hogares
+hogar <- data.table()
+for (i in 1:length(archivos_hogar)){
+  base <- fread(archivos_hogar[i])
+  hogar <- rbind(hogar, base,fill=T)
+  rm(base)
+}
+
+# Limpiamos memoria
+rm(archivo, archivos, archivos_hogar, archivos_individual, files, i)
+
+# Cargamos las canastas
+# Canastas
+canastas <- read_excel("Canastas_regionales.xlsx", sheet = "Mensual") %>% 
+  mutate(trimestre=quarter(ymd(paste0(anio,"-",mes,"-01")))) %>%
+  group_by(anio,trimestre,region,codigo) %>% 
+  summarise(CBA=mean(CBA),CBT=mean(CBT)) %>% 
+  select(REGION_DESC=region,ANO4=anio,TRIMESTRE=trimestre,CBA,CBT,REGION_COD=codigo) %>% 
+  as.data.table()
+
+# Anexamos coeficiente de adulto equivalente
+individual <- merge.data.table(individual, eph::adulto_equivalente, by = c("CH04","CH06"))
+
+# Cruzamos para agregar a las bases de hogar e individual
+tabla_regiones <- read_excel("Tabla_regiones.xlsx", sheet = "Diccionario") %>% 
+  distinct(AGLO_COD,AGLO_DESC,REGION_COD,REGION_DESC) %>% 
+  as.data.table()
+
+individual <- merge.data.table(individual,tabla_regiones,
+                               by.x="AGLOMERADO", by.y="AGLO_COD")
+
+# Cruzamos con las canastas
+individual<- merge.data.table(individual, canastas, 
+                              by = c("REGION_DESC","REGION_COD","ANO4","TRIMESTRE"))
+
+# Filtramos por aglomerados del Chaco
+# individual <- individual %>% filter(AGLOMERADO%in%c(8,44) & ANO4!=2020)
+
+# Verificamos que hayan cruzado todos
+sum(is.na(individual$CBA))
+sum(is.na(individual$CBT))
+
+# Calculamos las canastas y el ice
+individual <- individual %>% 
+  mutate(ice=CBT/CBA) %>% 
+  mutate(CBA=adequi*CBA) %>% 
+  mutate(CBT=CBA*ice)
+
+# Agregamos las canastas por hogar
+canastas_hogar <- individual %>% 
+  group_by(ANO4,TRIMESTRE,AGLOMERADO, CODUSU, NRO_HOGAR) %>% 
+  summarise(CBA=sum(CBA,na.rm=T),CBT=sum(CBT,na.rm=T))
+
+# Cruzamos con la base de hogares
+hogar <- merge.data.frame(hogar, canastas_hogar, 
+                          by = c("ANO4","TRIMESTRE","CODUSU","NRO_HOGAR","AGLOMERADO"))
+hogar <- merge.data.frame(hogar,tabla_regiones,
+                          by.x="AGLOMERADO", by.y="AGLO_COD")
+
+# Calculamos pobreza e indigencia a nivel hogar
+hogar <- as.data.table(hogar)
+hogar[, hogar_pobre:= ifelse(CBT>ITF,1,0)]
+hogar[, hogar_indigente:= ifelse(CBA>ITF,1,0)]
+
+# Asignamos la clasificación de pobre e indigente en la base de hogar
+individual <- merge.data.table(individual, hogar[,c(1:5,95,96)], 
+                               by = c("ANO4","TRIMESTRE","AGLOMERADO","CODUSU","NRO_HOGAR"))
+
+
+# Analizamos el NEA
+hogar_NEA <- hogar %>% filter(REGION==41)
+hogar_NEA %>% distinct(AGLOMERADO,AGLO_DESC)
+
+table(hogar_NEA$CODUSU, hogar_NEA$ANO4)
+
+# Marca de los repetidos al menos dos períodos
+hogar_NEA[, index:= paste0(CODUSU, NRO_HOGAR)]
+codusus <- as.data.frame(table(hogar_NEA$index))
+setnames(codusus,c("Var1","Freq"),c("index","nro_rep"))
+
+# Cruzamos con la base de hogares
+hogar_NEA <- merge.data.frame(hogar_NEA, codusus, by = "index")
+
+
+# Filtramos la base de hogares
+codusus <- codusus %>% filter(nro_rep>1)
+hogar_NEA <- hogar_NEA %>% mutate(repetidos=ifelse(index %in% codusus$index, 1, 0))
+
+fwrite(hogar_NEA, "hogar_NEA.txt")
+
+individual <- as.data.table(individual)
+individual_NEA <- individual[CODUSU %in% hogar_NEA$CODUSU,]
+fwrite(individual_NEA, "individual_NEA.txt")
