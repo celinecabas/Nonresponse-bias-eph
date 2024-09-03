@@ -11,10 +11,10 @@ library(zoo)
 
 # Carga de las bases ####
 # Hogar
-hogar_NEA <- fread("hogar_NEA.txt")
+hogar_NEA <- fread("Bases/hogar_NEA.txt")
 hogar_NEA[, periodo:= as.yearqtr(paste0(ANO4,"-",TRIMESTRE))]
 # Individual
-individual_NEA <- fread("individual_NEA.txt")
+individual_NEA <- fread("Bases/individual_NEA.txt")
 individual_NEA[, periodo:= as.yearqtr(paste0(ANO4,"-",TRIMESTRE))]
 individual_NEA <- individual_NEA[CH03==1,] # Filtramos por jefe de hogar
 

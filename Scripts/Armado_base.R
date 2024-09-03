@@ -3,10 +3,10 @@
 library(data.table)
 
 # Cargamos los nombres de los archivos
-files <- list.files("EPH_Base_Usuario")
+files <- list.files("Bases/EPH_Base_Usuario")
 archivos <- c()
 for (i in 1:length(files)){
-  archivo <- list.files(paste0("EPH_Base_Usuario/",files[i]),full.names = T)
+  archivo <- list.files(paste0("Bases/EPH_Base_Usuario/",files[i]),full.names = T)
   archivos <- c(archivo,archivos)
 }
 
@@ -35,7 +35,7 @@ rm(archivo, archivos, archivos_hogar, archivos_individual, files, i)
 
 # Cargamos las canastas
 # Canastas
-canastas <- read_excel("Canastas_regionales.xlsx", sheet = "Mensual") %>% 
+canastas <- read_excel("Bases/Canastas_regionales.xlsx", sheet = "Mensual") %>% 
   mutate(trimestre=quarter(ymd(paste0(anio,"-",mes,"-01")))) %>%
   group_by(anio,trimestre,region,codigo) %>% 
   summarise(CBA=mean(CBA),CBT=mean(CBT)) %>% 
@@ -46,7 +46,7 @@ canastas <- read_excel("Canastas_regionales.xlsx", sheet = "Mensual") %>%
 individual <- merge.data.table(individual, eph::adulto_equivalente, by = c("CH04","CH06"))
 
 # Cruzamos para agregar a las bases de hogar e individual
-tabla_regiones <- read_excel("Tabla_regiones.xlsx", sheet = "Diccionario") %>% 
+tabla_regiones <- read_excel("Bases/Tabla_regiones.xlsx", sheet = "Diccionario") %>% 
   distinct(AGLO_COD,AGLO_DESC,REGION_COD,REGION_DESC) %>% 
   as.data.table()
 
