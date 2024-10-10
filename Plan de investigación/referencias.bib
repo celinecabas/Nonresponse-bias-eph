@@ -22,7 +22,6 @@
 
 
 @book{handbook,
-   abstract = {This volume presents an all-inclusive guide to the problem of nonresponse in household surveys, providing an overview of the theory while also describing practical implications. The book begins with a general overview of the nonresponse problem, outlining existing sources of error and guidelines for calculating response rates according to various international standards. The theoretical content of survey sampling is also explored and presented in a chapter along with a discussion on nonresponse on survey estimates and missing data mechanisms. Subsequent chapters provide guidance on ... The nonresponse problem -- Basic theoretical concepts -- Reducing nonresponse -- Nonresponse and the mode of data collection -- Analysis of nonresponse -- An international comparison of nonresponse -- Nonresponse and representativity -- Weighting adjustment techniques -- Selection of auxiliary variables -- Re-approaching nonrespondents -- The use of response propensities -- Analysis and adjustment accounting for the cause of nonresponse -- Adaptive survey designs -- Item nonresponse -- Miscellaneous topics.},
    author = {J. Bethlehem and F. Cobben and B. Schouten},
    isbn = {9780470542798},
    pages = {474},
@@ -33,7 +32,6 @@
 
 
 @article{wmethods,
-   abstract = {It is said that a well-designed survey can best prevent nonresponse. However, no matter how well a survey is designed, in practice, nonresponse almost always occurs. The easiest way to deal with nonresponse is to ignore it, but frequently, ignoring nonresponse results in poor survey quality. Item nonresponse and unit nonresponse are two types of nonresponse. Imputation procedures are popular remedies for the former while weighting methods are commonly used to compensate for the latter. This paper focuses on weighting methods that help reduce nonresponse bias.},
    author = {F. Butar Butar and C. Chang},
    journal = {Survey Research Methods},
    pages = {4768-4782},
@@ -53,7 +51,6 @@ la medición de la Pobreza Multidimensional en Chile},
 
 
 @article{methodsml,
-   abstract = {Propensity Score Adjustment (PSA) is a widely accepted method to reduce selection bias in nonprobability samples. In this approach, the (unknown) response probability of each individual is estimated in a nonprobability sample, using a reference probability sample. This, the researcher obtains a representation of the target population, reflecting the differences (for a set of auxiliary variables) between the population and the nonprobability sample, from which response probabilities can be estimated. Auxiliary probability samples are usually produced by surveys with complex sampling designs, meaning that the use of design weights is crucial to accurately calculate response probabilities. When a linear model is used for this task, maximising a pseudo log-likelihood function which involves design weights provides consistent estimates for the inverse probability weighting estimator. However, little is known about how design weights may benefit the estimates when techniques such as machine learning classifiers are used. This study aims to investigate the behaviour of Propensity Score Adjustment with machine learning classifiers, subject to the use of weights in the modelling step. A theoretical approximation to the problem is presented, together with a simulation study highlighting the properties of estimators using different types of weights in the propensity modelling step.},
    author = {R. Ferri-García and J. L. Rueda-Sánchez and M. del Mar Rueda and B. Cobo},
    doi = {10.1016/j.matcom.2024.06.012},
    issn = {03784754},
@@ -66,7 +63,6 @@ la medición de la Pobreza Multidimensional en Chile},
 
 
 @article{wsmooth,
-   abstract = {Adjustment techniques to mitigate selection bias in nonprobability samples often involve modelling the propensity to participate in the nonprobability sample along with inverse propensity weighting. It is well known that procedures for estimating weights are effective if the covariates selected in the propensity model are related to both the variable of interest and the participation indicator. In most surveys, there are many variables of interest, making weight adjustments difficult to determine as a suitable weight for one variable may be unsuitable for other variables. The standard compromise is to include a large number of covariates in the propensity model but this may increase the variability of the estimates, especially when some covariates are weakly related to the variables of interest. Weight smoothing, developed for probability surveys, could be helpful in these situations. It aims to remove the variability caused by overfit propensity models by replacing the inverse propensity weights with predicted weights obtained using a smoothing model. In this article, we study weight smoothing in the nonprobability survey context, both theoretically and empirically, to understand its effectiveness at improving the efficiency of estimates.},
    author = {R. Ferri-García and J. F. Beaumont and K. Bosa and J. Charlebois and K. Chu},
    doi = {10.1007/s11749-021-00795-7},
    issn = {18638260},
@@ -80,7 +76,6 @@ la medición de la Pobreza Multidimensional en Chile},
 
 
 @article{psa_calib_onlinesv,
-   abstract = {One of the main sources of inaccuracy in modern survey techniques, such as online and smart-phone surveys, is the absence of an adequate sampling frame that could provide a probabilistic sampling. This kind of data collection leads to the presence of high amounts of bias in final estimates of the survey, specially if the estimated variables (also known as target variables) have some influence on the decision of the respondent to participate in the survey. Various correction techniques, such as calibration and propensity score adjustment or PSA, can be applied to remove the bias. This study attempts to analyse the efficiency of correction techniques in multiple situations, applying a combination of propensity score adjustment and calibration on both types of variables (correlated and not correlated with the missing data mechanism) and testing the use of a reference survey to get the population totals for calibration variables. The study was performed using a simulation of a fictitious population of potential voters and a real volunteer survey aimed to a population for which a complete census was available. Results showed that PSA combined with calibration results in a bias removal considerably larger when compared with calibration with no prior adjustment. Results also showed that using population totals from the estimates of a reference survey instead of the available population data does not make a difference in estimates accuracy, although it can contribute to slightly increment the variance of the estimator.},
    author = {R. Ferri-García and M. Del Mar Rueda},
    doi = {10.2436/20.8080.02.73},
    issn = {20138830},
@@ -94,7 +89,6 @@ la medición de la Pobreza Multidimensional en Chile},
 
 
 @article{longitudinal-non-response,
-   abstract = {We review two approaches for improving the response in longitudinal (birth cohort) studies based on response propensity models: strategies for sample maintenance in longitudinal studies and improving the representativeness of the respondents over time through interventions. Based on estimated response propensities, we examine the effectiveness of different re-issuing strategies using Representativity Indicators (R-indicators). We also combine information from the Receiver Operating Characteristic (ROC) curve with a cost function to determine an optimal cut point for the propensity not to respond in order to target interventions efficiently at cases least likely to respond. We use the first four waves of the UK Millennium Cohort Study to illustrate these methods. Our results suggest that it is worth re-issuing to the field nonresponding cases from previous waves although re-issuing refusals might not be the best use of resources. Adapting the sample to target subgroups for re-issuing from wave to wave will improve the representativeness of response. However, in situations where discrimination between respondents and nonrespondents is not strong, it is doubtful whether specific interventions to reduce nonresponse will be cost effective.},
    author = {I. Plewis and N. Shlomo},
    doi = {10.1515/JOS-2017-0035},
    issn = {20017367},
@@ -136,16 +130,57 @@ la medición de la Pobreza Multidimensional en Chile},
 }
 
 @article{longitudinal-empresas,
-   abstract = {Many household panel surveys have experienced decreasing response rates and increasing risk of nonresponse bias in recent decades, but trends in response rates and nonresponse bias in business or establishment panel surveys are largely understudied. This article examines both panel response rates and nonresponse bias in one of the largest and longest-running establishment panels, the IAB Establishment Panel. Response rate trends are reported over a 17-year period for each annual cohort and rich administrative data are used to evaluate changes in nonresponse bias and test hypotheses regarding short-term and long-term panel participation. The findings show that while cumulative panel response rates have declined over time, wave-to-wave reinterview rates have remained largely stable. Reinterview nonresponse bias has also remained stable, while cumulative nonresponse bias has consistently increased within all cohorts. Larger establishments and those that experienced an interviewer change or did not answer all survey questions (item nonresponse) in a previous wave were less likely to continue participating in the panel. These findings and their practical implications are discussed in conclusion.},
    author = {C. König and J. W. Sakshaug},
    doi = {10.1186/s12651-023-00349-4},
    issn = {25105027},
    issue = {1},
    journal = {Journal for Labour Market Research},
-   keywords = {Administrative data,Attrition,Establishment survey,Nonresponse bias,Panel participation,Paradata},
-   month = {12},
    publisher = {Institute for Ionics},
    title = {Nonresponse trends in establishment panel surveys: findings from the 2001–2017 IAB establishment panel},
    volume = {57},
    year = {2023},
+}
+
+@misc{indecmetod,
+   author = {Instituto Nacional de Estadística y Censos},
+   title = {Encuesta Permanente de Hogares: Consideraciones metodológicas sobre el tratamiento de la información del segundo trimestre de 2020},
+   year = {2020}
+}
+
+@misc{indecmetod2,
+   author = {Instituto Nacional de Estadística y Censos},
+   title = {Encuesta Permanente de Hogares: Diseño de registro y estructura para las bases preliminares Hogar y Personas},
+   year = {2024}
+}
+
+@inproceedings{nonresponsearg,
+   author = {C. Comari and A. E. Hoszowski},
+   doi = {10.13140/RG.2.1.1579.0960},
+   isbn = {2.1.1579.0960},  
+   booktitle = {Joint Statistical Meetings},
+   title = {Non response in rotating panel surveys: analysis on Argentina's labor force survey},
+   year = {2014}
+}
+
+
+@article{psm_gasparini,
+   author = {L. Gasparini and F. Haimovich and S. Olivieri},
+   doi = {10.1016/S1514-0326(09)60012-X},
+   issn = {1514-0326},
+   issue = {2},
+   journal = {Journal of Applied Economics},
+   pages = {181-205},
+   publisher = {No longer published by Elsevier},
+   title = {Labor informality bias of a poverty-alleviation program in Argentina},
+   volume = {12},
+   year = {2009}
+}
+
+@unpublished{auh_psm,
+   author = {Sebastien Carrere},
+   institution = {Université de Bordeaux},
+   title = {How effective are cash transfer programs in mitigating income instability? Evidence from the AUH in Argentina},
+   url = {https://hal.science/hal-04525248v3},
+   year = {2024},
+   note = {} 
 }
