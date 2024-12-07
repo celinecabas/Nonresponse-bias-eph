@@ -30,6 +30,7 @@ setorder(individual_NEA, CODUSU, NRO_HOGAR, ANO4, TRIMESTRE)
 individual_NEA[, index:= paste0(CODUSU, NRO_HOGAR)]
 # Informal
 individual_NEA[, informal:= ifelse(PP07H==0, 1, 0)]
+individual_NEA[, informal:= ifelse(is.na(informal)==T, 0, informal)]
 # Aglomerado
 individual_NEA[, AGLO_DESC:= as.factor(AGLO_DESC)]
 # Nivel educativo
@@ -44,15 +45,9 @@ individual_NEA[, horas_trab:= as.numeric(PP3E_TOT) + PP3F_TOT]
 # Ingreso per cápita familiar
 individual_NEA[, IPCF:= as.numeric(str_replace(IPCF, ",","."))]
 
-# Categoría de ocupación
-individual_NEA[, CAT_OCUP:= as.factor(case_when(CAT_OCUP==1 ~ "Patrón",
-                                                CAT_OCUP==2 ~ "Cuenta propia",
-                                                CAT_OCUP==3 ~ "Obrero o empleado",
-                                                CAT_OCUP==4 ~ "Trabajo fliar sin rem",
-                                                CAT_OCUP==0 & ESTADO==3 ~ "Inactivo"))]
 
 # Deflactamos IPCF
-ipc <- read_excel("IPC_NEA_2004.xlsx", sheet = "Trimestral") %>% na.omit() %>% as.data.table()
+ipc <- read_excel("Bases/IPC_NEA_2004.xlsx", sheet = "Trimestral") %>% na.omit() %>% as.data.table()
 ipc <- ipc %>% mutate(periodo = as.yearqtr(paste0(anio,"-",trimestre))) 
 ipc <- ipc[ ,c("periodo", "ipc_b24")]
 individual_NEA <- merge.data.table(individual_NEA, ipc, by = "periodo")
@@ -133,8 +128,8 @@ tabla2 <- data.frame(Variables = c("NRO_REP ~ hogar_pobre",
 
 
 
-library(ggthemr)
-ggthemr("sky")
+#library(ggthemr)
+#ggthemr("sky")
 
 # Serie de nro de repeticiones por aglomerado
 grafico1 <- individual_NEA %>% 
@@ -144,11 +139,13 @@ grafico1 <- individual_NEA %>%
   ggplot(aes(periodo, n, fill=as.factor(nro_rep))) +
   geom_bar(stat = "identity", position = "fill", color="white") +
   facet_wrap(.~AGLO_DESC, ncol = 2, scales = "free_x") +
+  scale_fill_manual(values=c("#ced2d3","#737373","#22373a","#ff914d")) +
   scale_x_yearqtr(format="%Y-%qT", expand=c(0,0)) + 
   xlab("") + ylab("") + 
-  theme_grey() + 
-  theme(legend.position = "bottom",
-        legend.title = element_blank())
+  labs(fill="Número de repeticiones / Entrevistas realizadas") +
+  theme_light() + 
+  theme(legend.position = "top",
+        plot.background = element_rect(fill="#fbfbfb"))
 
 # Valores altos de PONDIH y PONDERA
 # Suponemos reponderación por baja tasa de respuesta
@@ -156,6 +153,8 @@ individual_NEA %>%
   ggplot(aes(PONDIH,AGLO_DESC)) +
   geom_boxplot() +
   theme_grey()
+
+
 
 # Resultados pobreza con base hogar ####
 resultados_pobreza <- individual_NEA[CH03==1, 
@@ -177,8 +176,7 @@ ggplot(resultados_pobreza, aes(periodo,hogares_indigentes,fill=AGLO_DESC)) +
   geom_line(stat="identity") +
   theme_minimal() +
   ggtitle("Resultados de indigencia") +
-  xlab("") + ylab("") + 
-  
+  xlab("") + ylab("") 
 
 ## MMultinomial para nro rep #### 
 library(mclogit)
@@ -189,7 +187,7 @@ library(VGAM)
 glm.multi.rcia <- vglm(formula = ordered(nro_rep) ~ logIPCF_d + CH06 + I(CH06^2) + IX_TOT + casadpto, 
                        family = cumulative(parallel = TRUE),
                        data = subset(individual_NEA, AGLO_DESC=="Gran Resistencia"))
-
+summary(glm.multi.rcia)
 
 # # Test para evaluar bondad de ajuste
 # library(ResourceSelection)
@@ -213,6 +211,7 @@ glm.multi.fmsa <- vglm(formula = ordered(nro_rep) ~ logIPCF_d + CH06 + I(CH06^2)
                        data = subset(individual_NEA, AGLO_DESC=="Formosa"))
 
 # Tabla resumen del modelo
+library(modelsummary)
 modelos.glm.multi <- list("Gran Rcia" = glm.multi.rcia, 
                           "Corrientes" = glm.multi.ctes, 
                           "Formosa" = glm.multi.fmsa, 
@@ -225,7 +224,8 @@ modelsummary(modelos.glm.multi, gof_map = "all",
              estimate = "{estimate}{stars} [{conf.low}, {conf.high}]",
              statistic = "p.value")
 
-anova()
+
+
 
 
 # Modelos alternativos para probabilidades predichas -----------------------------
@@ -241,7 +241,9 @@ library(performance) # Para curva ROC
 individual_NEA[, completo:= ifelse(nro_rep==4, 1, 0)]
 
 # Variables a utilizar (agregar más)
-formula <- "as.factor(completo) ~ logIPCF_d + CH06 + I(CH06^2) + IX_TOT + casadpto"
+formula <- "completo ~ logIPCF_d + CH06 + I(CH06^2) + IX_TOT + casadpto + basural + 
+                            leer + NIVEL_ED + mujer + casadounido + ESTADO + CAT_INAC +
+                            CAT_OCUP + otros_ing_nolab + informal"
 
 # Muestra en train (70%) y test (30%) por aglomerado y período
 individual_NEA_train <- data.table()
@@ -281,18 +283,21 @@ cm_logit <- confusionMatrix(table(individual_NEA_test$completo,
 cm_logit
 
 # Curva ROC
-pred.logit <- prediction(individual_NEA_test$pclass_logit, individual_NEA_test$completo) #solo cambia el formato del objeto para que sea soportable por la función performance
-perf.logit <- performance (pred.logit, "tpr", "fpr") #guarda los valores de TPR (sensibilidad) y FPR (1-especificidad)
+pred.logit <- ROCR::prediction(individual_NEA_test$pclass_logit, individual_NEA_test$completo) #solo cambia el formato del objeto para que sea soportable por la función performance
+perf.logit <- ROCR::performance (pred.logit, measure="tpr", x.measure="fpr") #guarda los valores de TPR (sensibilidad) y FPR (1-especificidad)
 plot(perf.logit, main = "Curva ROC", ylab = "Sensibilidad", xlab = "1-especificidad") # grafica la curva ROC
 abline(a=0, b=1) # agregamos la recta de referencia
 
 # Guardamos medidas de la clasificación
+medidas <- data.frame()
 medidas <- rbind(medidas,
                  data.frame(Modelo="Logístico",
                             accuracy = round(cm_logit$overall[["Accuracy"]],5),
                             sensibilidad = round(cm_logit$byClass[["Sensitivity"]], 5),
                             especificidad = round(cm_logit$byClass[["Specificity"]], 5),
-                            auc = round(performance(pred.logit, measure = "auc")@y.values[[1]], 5)))
+                            VPP = round(cm_logit$byClass[["Pos Pred Value"]], 5),
+                            VPN = round(cm_logit$byClass[["Neg Pred Value"]], 5),
+                            auc = round(ROCR::performance(pred.logit, measure = "auc")@y.values[[1]], 5)))
 
 # 2) Árbol de decisión # ----------------
 
@@ -301,11 +306,13 @@ modelo_rpart <- rpart(formula, data = individual_NEA_train, control = rpart.cont
 
 # Poda del árbol según relación costo-complejidad 
 printcp(modelo_rpart)
+plotcp(modelo_rpart)
 modelo_rpart_podado <- prune(modelo_rpart, cp=0.002)
 prp(modelo_rpart_podado, extra=101, type=2,  xsep="/") 
 
 # Clases predichas
-individual_NEA_test$pclass_cart <- as.factor(predict(modelo_rpart_podado, newdata=individual_NEA_test, type="class"))
+individual_NEA_test$pclass_cart <- predict(modelo_rpart_podado, newdata=individual_NEA_test)
+individual_NEA_test$pclass_cart <- ifelse(individual_NEA_test$pclass_cart>0.5, 1, 0)
 
 # Probabilidades predichas
 # individual_NEA_test$pprob_cart <- predict(modelo_rpart_podado, newdata=individual_NEA_test, type="prob")
@@ -315,10 +322,13 @@ cm_rpart <- confusionMatrix(table(individual_NEA_test$completo, individual_NEA_t
 cm_rpart
 
 # Curva ROC
-pred.cart <- prediction(individual_NEA_test$pclass_cart, individual_NEA_test$completo) #solo cambia el formato del objeto para que sea soportable por la función performance
-perf.cart <- performance (pred.cart, "tpr", "fpr") #guarda los valores de TPR (sensibilidad) y FPR (1-especificidad)
-plot(perf.logit, main = "Curva ROC", ylab = "Sensibilidad", xlab = "1-especificidad") # grafica la curva ROC
+pred.cart <- ROCR::prediction(as.numeric(individual_NEA_test$pclass_cart), individual_NEA_test$completo) #solo cambia el formato del objeto para que sea soportable por la función performance
+perf.cart <- ROCR::performance (pred.cart, "tpr", "fpr") #guarda los valores de TPR (sensibilidad) y FPR (1-especificidad)
+plot(perf.cart, main = "Curva ROC", ylab = "Sensibilidad", xlab = "1-especificidad") # grafica la curva ROC
 abline(a=0, b=1) # agregamos la recta de referencia
+
+# Variables de importancia
+modelo_rpart_podado$variable.importance
 
 # Guardamos medidas de la clasificación
 medidas <- rbind(medidas,
@@ -326,20 +336,52 @@ medidas <- rbind(medidas,
                             accuracy = round(cm_rpart$overall[["Accuracy"]],5),
                             sensibilidad = round(cm_rpart$byClass[["Sensitivity"]], 5),
                             especificidad = round(cm_rpart$byClass[["Specificity"]], 5),
-                            auc = round(performance(pred.cart, measure = "auc")@y.values[[1]], 5)))
+                            VPP = round(cm_rpart$byClass[["Pos Pred Value"]], 5),
+                            VPN = round(cm_rpart$byClass[["Neg Pred Value"]], 5),
+                            auc = round(ROCR::performance(pred.cart, measure = "auc")@y.values[[1]], 5)))
 
 
 # 3) Random Forest # --------------
 library(randomForest)
-modelo_rf <- randomForest(formula, data = individual_GR)
+
+# Chequeamos na
+apply(is.na(individual_NEA_train), 2, sum)
+
+# Ajustamos el modelo
+modelo_rf <- randomForest(completo ~ logIPCF_d + CH06 + I(CH06^2) + IX_TOT + basural + informal +
+                            NIVEL_ED + mujer + casadounido + ESTADO + CAT_INAC + CAT_OCUP + otros_ing_nolab, 
+                          data = individual_NEA_train, 
+                          importance = T, 
+                          na.action=na.omit, 
+                          type="classification")
 
 # Matriz de confusión
-individual_GR$predict <- predict(modelo, individual_GR)
+individual_NEA_test$pclass_rf <- predict(modelo_rf, newdata=individual_NEA_test, type="class")
+individual_NEA_test$pclass_rf <- ifelse(individual_NEA_test$pclass_rf>0.5, 1, 0)
+
+cm_rf <- confusionMatrix(table(individual_NEA_test$completo, individual_NEA_test$pclass_rf), positive = "1")
+cm_rf
+
+# Variables de importancia
+modelo_rf$importance
+
+# Curva ROC
+pred.rf <- ROCR::prediction(as.numeric(individual_NEA_test$pclass_rf), individual_NEA_test$completo) #solo cambia el formato del objeto para que sea soportable por la función performance
+perf.rf <- ROCR::performance (pred.rf, "tpr", "fpr") #guarda los valores de TPR (sensibilidad) y FPR (1-especificidad)
+plot(perf.rf, main = "Curva ROC", ylab = "Sensibilidad", xlab = "1-especificidad") # grafica la curva ROC
+abline(a=0, b=1) # agregamos la recta de referencia
 
 
-confusionMatrix(table(individual_GR$completo, individual_GR$predict), positive = "1")
-modelo$importance
-predict(modelo, individual_GR, type="prob")
+# Guardamos medidas de la clasificación
+medidas <- rbind(medidas,
+                 data.frame(Modelo="Random Forest",
+                            accuracy = round(cm_rf$overall[["Accuracy"]],5),
+                            sensibilidad = round(cm_rf$byClass[["Sensitivity"]], 5),
+                            especificidad = round(cm_rf$byClass[["Specificity"]], 5),
+                            VPP = round(cm_rf$byClass[["Pos Pred Value"]], 5),
+                            VPN = round(cm_rf$byClass[["Neg Pred Value"]], 5),
+                            auc = round(ROCR::performance(pred.rf, measure = "auc")@y.values[[1]], 5)))
+
 
 
 # Guardamos las probabilidades predichas
@@ -347,6 +389,23 @@ individual_GR$prob_completo <- predict(modelo, individual_GR, type="prob")[,2]
 hist(individual_GR$prob_completo)
 hist(individual_GR$prob4)
 names(individual_GR) <- c(names(individual_GR)[1:224], "prob1", "prob2", "prob3", "prob4")
+
+
+# XGBoost
+library(xgboost)
+
+individual_NEA_test <- individual_NEA_test %>% 
+  dplyr::select(logIPCF_d, CH06, IX_TOT, casadpto, basural, leer, NIVEL_ED, mujer, casadounido) 
+
+individual_NEA_test <- map_df(individual_NEA_test, function(columna) {
+  columna %>% 
+    as.factor() %>% 
+    as.numeric %>% 
+    { . - 1 }
+})
+
+
+# Naive Bayes
 
 
 # Corrección del ponderador
