@@ -1,6 +1,8 @@
 # Armado del panel de datos EPH Usuario ####
 
 library(data.table)
+library(tidyverse)
+library(readxl)
 
 # Cargamos los nombres de los archivos
 files <- list.files("Bases/EPH_Base_Usuario")
@@ -100,18 +102,16 @@ table(hogar_NEA$CODUSU, hogar_NEA$ANO4)
 # Marca de los repetidos al menos dos períodos
 hogar_NEA[, index:= paste0(CODUSU, NRO_HOGAR)]
 codusus <- as.data.frame(table(hogar_NEA$index))
+table(codusus$Freq) # Hasta 4 repeticiones en todos los casos
 setnames(codusus,c("Var1","Freq"),c("index","nro_rep"))
 
 # Cruzamos con la base de hogares
 hogar_NEA <- merge.data.frame(hogar_NEA, codusus, by = "index")
 
+# Exportamos la base de datos hogar
+fwrite(hogar_NEA, "Bases/hogar_NEA.txt")
 
-# Filtramos la base de hogares
-codusus <- codusus %>% filter(nro_rep>1)
-hogar_NEA <- hogar_NEA %>% mutate(repetidos=ifelse(index %in% codusus$index, 1, 0))
-
-fwrite(hogar_NEA, "hogar_NEA.txt")
-
+# Exportamos la base de datos individual
 individual <- as.data.table(individual)
 individual_NEA <- individual[CODUSU %in% hogar_NEA$CODUSU,]
-fwrite(individual_NEA, "individual_NEA.txt")
+fwrite(individual_NEA, "Bases/individual_NEA.txt")

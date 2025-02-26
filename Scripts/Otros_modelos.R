@@ -4,7 +4,8 @@
 library(plm)
 panel_ind <- pdata.frame(individual_NEA, index=c("index", "periodo"))
 panel_ind <- panel_ind %>% 
-  mutate(anio=as.factor(ANO4)) %>% 
+  mutate(anio=as.factor(ANO4),
+         nro_rep=as.numeric(nro_rep)) %>% 
   filter(is.infinite(logIPCF_d)==F)
 
 hist(individual_NEA$IPCF_d)

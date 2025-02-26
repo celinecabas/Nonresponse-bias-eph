@@ -8,6 +8,9 @@ library(tidyverse)
 library(nlme)
 library(zoo)
 
+# Paleta de colores de los gráficos
+# https://colormagic.app/es/palette/6715f176e7aeb007989f9a3d
+
 
 # Carga de las bases ####
 # Hogar
@@ -20,7 +23,7 @@ individual_NEA <- individual_NEA[CH03==1,] # Filtramos por jefe de hogar
 
 setnames(hogar_NEA, "CBA", "CBA_hogar")
 setnames(hogar_NEA, "CBT", "CBT_hogar")
-individual_NEA <- merge.data.table(individual_NEA, hogar_NEA[,c(2:6,11,25,66,67,91:92,98:99)],
+individual_NEA <- merge.data.table(individual_NEA, hogar_NEA[,c(2:6,11,25,66,67,91:92,98)],
                                    by = c("AGLOMERADO", "ANO4", "TRIMESTRE", "CODUSU", "NRO_HOGAR"))
 
 setorder(individual_NEA, CODUSU, NRO_HOGAR, ANO4, TRIMESTRE)
@@ -94,8 +97,27 @@ individual_NEA$n=NULL
 # Calculamos el identificador por 'área'
 individual_NEA[, area:= substr(CODUSU, 1, 8)]
 
+
+# Analizamos los períodos a filtrar
+prop_por_periodo <- individual_NEA %>% 
+  group_by(periodo, nro_rep) %>% 
+  summarise(n=n_distinct(index)) %>% 
+  group_by(periodo) %>% 
+  mutate(total=sum(n)) %>% 
+  ungroup() %>% 
+  mutate(prop=n/total) %>% 
+  select(periodo, nro_rep, prop) %>% 
+  pivot_wider(names_from = "nro_rep", values_from = "prop")
+View(prop_por_periodo)
+
+# Quitamos un año al comienzo y al final + período de pandemia
+# 2016 Q2, 2016 Q3, 2016Q4, 2017 Q1, 2020 Q2, 2023 Q3, 2023 Q4, 2024 Q1, 2024 Q2
+
+
 # Filtramos la base de datos por los períodos a analizar
-individual_NEA <- subset(individual_NEA, !(ANO4 %in% c(2016,2017,2023)) & IPCF_d>0)
+individual_NEA <- subset(individual_NEA, 
+                         !(periodo %in% c("2016 Q2", "2016 Q3", "2016 Q4", "2017 Q1", "2020 Q2", "2023 Q3", "2023 Q4", "2024 Q1", "2024 Q2")) & 
+                           IPCF_d>0)
 
 
 # Modelos #####
@@ -142,10 +164,11 @@ grafico1 <- individual_NEA %>%
   scale_fill_manual(values=c("#ced2d3","#737373","#22373a","#ff914d")) +
   scale_x_yearqtr(format="%Y-%qT", expand=c(0,0)) + 
   xlab("") + ylab("") + 
-  labs(fill="Número de repeticiones / Entrevistas realizadas") +
+  labs(fill="Entrevistas realizadas") +
   theme_light() + 
-  theme(legend.position = "top",
-        plot.background = element_rect(fill="#fbfbfb"))
+  theme(legend.position = "bottom",
+        plot.background = element_rect(fill="#fbfbfb"),
+        text = element_text(family="serif"))
 
 # Valores altos de PONDIH y PONDERA
 # Suponemos reponderación por baja tasa de respuesta
@@ -163,20 +186,37 @@ resultados_pobreza <- individual_NEA[CH03==1,
                                 by = .(periodo, AGLO_DESC)]
 
 # Resultados pobreza
-ggplot(resultados_pobreza, aes(periodo,hogares_pobres,fill=AGLO_DESC)) +
-  geom_bar(stat="identity", position = "dodge") + 
-  theme_grey() + 
+grafico2 <- 
+  ggplot(resultados_pobreza, aes(periodo,hogares_pobres,color=AGLO_DESC)) +
+  geom_line(stat="identity") +
+  geom_smooth(se=FALSE) +
+  theme_light() + 
   ggtitle("Resultados de pobreza") +
+  scale_y_continuous(labels = scales::percent) +
+  scale_color_manual(values=c("#5c6b8a","#a2b8d2","#f07838","#ba4c40")) +
   theme(legend.position = "bottom",
-        legend.title = element_blank())+
+        legend.title = element_blank(),
+        text = element_text(family="serif")) + 
   xlab("") + ylab("")
 
 # Resultados indigencia
-ggplot(resultados_pobreza, aes(periodo,hogares_indigentes,fill=AGLO_DESC)) +
+grafico3 <- 
+  ggplot(resultados_pobreza, aes(periodo,hogares_indigentes,color=AGLO_DESC)) +
   geom_line(stat="identity") +
-  theme_minimal() +
+  geom_smooth(se=FALSE) + 
+  theme_light() +
   ggtitle("Resultados de indigencia") +
+  scale_y_continuous(labels = scales::percent) +
+  scale_color_manual(values=c("#5c6b8a","#a2b8d2","#f07838","#ba4c40")) +
+  theme(legend.position = "bottom",
+        legend.title = element_blank(),
+        text=element_text(family="serif")) +
   xlab("") + ylab("") 
+
+library(patchwork)
+
+# ! Exportar gráficos 2 y 3 con resultados de pobreza e indigencia
+
 
 ## MMultinomial para nro rep #### 
 library(mclogit)
@@ -184,7 +224,7 @@ library(VGAM)
 
 # Modelos para probabilidad de respuesta del hogar
 # Modelo para Gran Resistencia
-glm.multi.rcia <- vglm(formula = ordered(nro_rep) ~ logIPCF_d + CH06 + I(CH06^2) + IX_TOT + casadpto, 
+glm.multi.rcia <- vglm(formula = ordered(nro_rep) ~ logIPCF_d + CH06 + I(CH06^2) + IX_TOT + casadpto + casadounido, 
                        family = cumulative(parallel = TRUE),
                        data = subset(individual_NEA, AGLO_DESC=="Gran Resistencia"))
 summary(glm.multi.rcia)
@@ -196,17 +236,17 @@ summary(glm.multi.rcia)
 
 
 # Modelo para Corrientes
-glm.multi.ctes <- vglm(formula = ordered(nro_rep) ~ logIPCF_d + CH06 + IX_TOT + casadpto + casadounido, 
+glm.multi.ctes <- vglm(formula = ordered(nro_rep) ~ logIPCF_d + CH06 + I(CH06^2) + IX_TOT + casadpto + casadounido, 
                        family = cumulative(parallel = TRUE),
                        data = subset(individual_NEA, AGLO_DESC=="Corrientes"))
 
 # Modelo para Posadas
-glm.multi.psdas <- vglm(formula = ordered(nro_rep) ~ logIPCF_d + CH06 + I(CH06^2) + IX_TOT + casadpto, 
+glm.multi.psdas <- vglm(formula = ordered(nro_rep) ~ logIPCF_d + CH06 + I(CH06^2) + IX_TOT + casadpto + casadounido, 
                         family = cumulative(parallel = TRUE),
                         data = subset(individual_NEA, AGLO_DESC=="Posadas"))
 
 # Modelo para Formosa
-glm.multi.fmsa <- vglm(formula = ordered(nro_rep) ~ logIPCF_d + CH06 + I(CH06^2) + IX_TOT + casadpto, 
+glm.multi.fmsa <- vglm(formula = ordered(nro_rep) ~ logIPCF_d + CH06 + I(CH06^2) + IX_TOT + casadpto + casadounido, 
                        family = cumulative(parallel = TRUE),
                        data = subset(individual_NEA, AGLO_DESC=="Formosa"))
 
@@ -225,6 +265,177 @@ modelsummary(modelos.glm.multi, gof_map = "all",
              statistic = "p.value")
 
 
+
+# Bootstrap para estimación de coeficientes # ----------------------------------
+library(boot)
+
+# Modelo Gran Resistencia
+# Función para calcular el coeficiente de logIPCF_d
+funcion_coef_multinomial <- function(data, i){
+  data = subset(individual_NEA, AGLO_DESC=="Gran Resistencia")
+  data = data[i]
+  modelo = vglm(formula = ordered(nro_rep) ~ logIPCF_d + CH06 + I(CH06^2) + IX_TOT + casadpto + casadounido,
+                family = cumulative(parallel = TRUE),
+                data = data)
+  exp(coefficients(modelo))
+}
+# Corremos bootstrap
+res.boot.GR <- boot(individual_NEA, funcion_coef_multinomial, R=1000)
+res.boot.GR
+
+# Tabla vacía para guardar resultados
+glm.rcia.boot <- data.frame(coeficiente=names(coef(glm.multi.rcia)),
+                            original=rep(NA,9),
+                            bias=rep(NA,9),
+                            std.error=rep(NA,9),
+                            lim.inf=rep(NA,9),
+                            lim.sup=rep(NA,9))
+
+# Anexamos los resultados a la tabla
+for (i in 1:9){
+  # Intervalo de confianza con percentiles
+  coef.ci.GR <- boot.ci(res.boot.GR, type="perc",t0=res.boot.GR$t0[i], t=res.boot.GR$t[,i])
+  glm.rcia.boot$original[i] = coef.ci.GR$t0
+  glm.rcia.boot$bias[i] = sd(res.boot.GR$t[,i])
+  glm.rcia.boot$std.error[i] = mean(res.boot.GR$t[,i]) - coef.ci.GR$t0
+  glm.rcia.boot$lim.inf[i] <- coef.ci.GR$percent[4]
+  glm.rcia.boot$lim.sup[i] <- coef.ci.GR$percent[5]
+}
+
+# Agregamos el nombre del aglomerado
+glm.rcia.boot$Aglomerado="Gran Resistencia"
+
+# Modelo Corrientes
+# Función para calcular el coeficiente de logIPCF_d
+funcion_coef_multinomial <- function(data, i){
+  data = subset(individual_NEA, AGLO_DESC=="Corrientes")
+  data = data[i]
+  modelo = vglm(formula = ordered(nro_rep) ~ logIPCF_d + CH06 + I(CH06^2) + IX_TOT + casadpto + casadounido,
+                family = cumulative(parallel = TRUE),
+                data = data)
+  coefficients(modelo)
+}
+# Corremos bootstrap
+res.boot.Ctes <- boot(individual_NEA, funcion_coef_multinomial, R=1000)
+res.boot.Ctes
+
+# Tabla vacía para guardar resultados
+glm.ctes.boot <- data.frame(coeficiente=names(coef(glm.multi.ctes)),
+                            original=rep(NA,9),
+                            bias=rep(NA,9),
+                            std.error=rep(NA,9),
+                            lim.inf=rep(NA,9),
+                            lim.sup=rep(NA,9))
+
+# Anexamos los resultados a la tabla
+for (i in 1:9){
+  # Intervalo de confianza con percentiles
+  coef.ci.Ctes <- boot.ci(res.boot.Ctes, type="perc",t0=res.boot.Ctes$t0[i], t=res.boot.Ctes$t[,i])
+  glm.ctes.boot$original[i] = coef.ci.Ctes$t0
+  glm.ctes.boot$bias[i] = sd(res.boot.Ctes$t[,i])
+  glm.ctes.boot$std.error[i] = mean(res.boot.Ctes$t[,i]) - coef.ci.Ctes$t0
+  glm.ctes.boot$lim.inf[i] <- coef.ci.Ctes$percent[4]
+  glm.ctes.boot$lim.sup[i] <- coef.ci.Ctes$percent[5]
+}
+
+# Agregamos el nombre del aglomerado
+glm.ctes.boot$Aglomerado="Corrientes"
+
+
+# Modelo Posadas
+# Función para calcular el coeficiente de logIPCF_d
+funcion_coef_multinomial <- function(data, i){
+  data = subset(individual_NEA, AGLO_DESC=="Posadas")
+  data = data[i]
+  modelo = vglm(formula = ordered(nro_rep) ~ logIPCF_d + CH06 + I(CH06^2) + IX_TOT + casadounido,
+                family = cumulative(parallel = TRUE),
+                data = data)
+  coefficients(modelo)
+}
+# Corremos bootstrap
+res.boot.Psdas <- boot(individual_NEA, funcion_coef_multinomial, R=1000)
+res.boot.Psdas
+
+# Tabla vacía para guardar resultados
+glm.psdas.boot <- data.frame(coeficiente=names(coef(glm.multi.psdas)[-8]),
+                             original=rep(NA,8),
+                             bias=rep(NA,8),
+                             std.error=rep(NA,8),
+                             lim.inf=rep(NA,8),
+                             lim.sup=rep(NA,8))
+
+# Anexamos los resultados a la tabla
+for (i in 1:8){
+  # Intervalo de confianza con percentiles
+  coef.ci.Psdas <- boot.ci(res.boot.Psdas, type="perc",t0=res.boot.Psdas$t0[i], t=res.boot.Psdas$t[,i])
+  glm.psdas.boot$original[i] = coef.ci.Psdas$t0
+  glm.psdas.boot$bias[i] = sd(res.boot.Psdas$t[,i])
+  glm.psdas.boot$std.error[i] = mean(res.boot.Psdas$t[,i]) - coef.ci.Psdas$t0
+  glm.psdas.boot$lim.inf[i] <- coef.ci.Psdas$percent[4]
+  glm.psdas.boot$lim.sup[i] <- coef.ci.Psdas$percent[5]
+}
+
+# Agregamos el nombre del aglomerado
+glm.psdas.boot$Aglomerado="Posadas"
+
+
+# Modelo Formosa
+# Función para calcular el coeficiente de logIPCF_d
+funcion_coef_multinomial <- function(data, i){
+  data = subset(individual_NEA, AGLO_DESC=="Formosa")
+  data = data[i]
+  modelo = vglm(formula = ordered(nro_rep) ~ logIPCF_d + CH06 + I(CH06^2) + IX_TOT + casadpto + casadounido,
+                family = cumulative(parallel = TRUE),
+                data = data)
+  coefficients(modelo)
+}
+# Corremos bootstrap
+res.boot.Fmsa <- boot(individual_NEA, funcion_coef_multinomial, R=1000)
+res.boot.Fmsa
+
+# Tabla vacía para guardar resultados
+glm.fmsa.boot <- data.frame(coeficiente=names(coef(glm.multi.fmsa)),
+                            original=rep(NA,9),
+                            bias=rep(NA,9),
+                            std.error=rep(NA,9),
+                            lim.inf=rep(NA,9),
+                            lim.sup=rep(NA,9))
+
+# Anexamos los resultados a la tabla
+for (i in 1:9){
+  # Intervalo de confianza con percentiles
+  coef.ci.Fmsa <- boot.ci(res.boot.Fmsa, type="perc",t0=res.boot.Fmsa$t0[i], t=res.boot.Fmsa$t[,i])
+  glm.fmsa.boot$original[i] = coef.ci.Fmsa$t0
+  glm.fmsa.boot$bias[i] = sd(res.boot.Fmsa$t[,i])
+  glm.fmsa.boot$std.error[i] = mean(res.boot.Fmsa$t[,i]) - coef.ci.Fmsa$t0
+  glm.fmsa.boot$lim.inf[i] <- coef.ci.Fmsa$percent[4]
+  glm.fmsa.boot$lim.sup[i] <- coef.ci.Fmsa$percent[5]
+}
+
+# Agregamos el nombre del aglomerado
+glm.fmsa.boot$Aglomerado="Formosa"
+
+# Anexamos todas las tablas
+tabla_boot <- rbindlist(list(glm.rcia.boot[-c(1:3),], glm.ctes.boot[-c(1:3),], 
+                             glm.fmsa.boot[-c(1:3),], glm.psdas.boot[-c(1:3),]),
+                        use.names = TRUE, fill = TRUE)
+
+tabla_boot$bootstrap = exp(tabla_boot$original+tabla_boot$bias)
+tabla_boot$original = exp(tabla_boot$original)
+tabla_boot$lim.inf = exp(tabla_boot$lim.inf)
+tabla_boot$lim.sup = exp(tabla_boot$lim.sup)
+
+# Formateamos la tabla
+tabla_boot <- tabla_boot %>% 
+  select(coeficiente, original, bootstrap, lim.inf, lim.sup, Aglomerado) %>% 
+  mutate(original = format(original, digits=3), 
+         bootstrap = format(bootstrap, digits=3),
+         lim.inf = format(lim.inf, digits=3), 
+         lim.sup = format(lim.sup, digits=3))
+
+# Exportamos los resultados bootstrap
+save(res.boot.GR, res.boot.Ctes, res.boot.Fmsa, res.boot.Psdas, tabla_boot, 
+     file="Informe y resultados/Resultados_bootstrap.RData")
 
 
 
@@ -406,6 +617,9 @@ individual_NEA_test <- map_df(individual_NEA_test, function(columna) {
 
 
 # Naive Bayes
+
+
+
 
 
 # Corrección del ponderador
@@ -729,5 +943,8 @@ ggplot(resultados_pobreza, aes(periodo,hogares_indigentes)) +
 
 
 # Guardamos resultados
-save(tabla1, tabla2, grafico1, modelos_panel, modelos.glm.multi,
-     file = "Resultados.RData")
+save(tabla1, tabla2, grafico1, grafico2, grafico3, modelos_panel, modelos.glm.multi,
+     file = "Informe y resultados/Resultados.RData")
+
+
+

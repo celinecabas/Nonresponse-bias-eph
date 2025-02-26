@@ -2,36 +2,41 @@
 output: 
   pdf_document:
     number_sections: true
+    citation_package: biblatex
+documentclass: report
 header-includes:
-  - \usepackage[spanish]{babel}
-  - \usepackage{float} % Para fijar los cuadros
-  - \floatplacement{figure}{H}  
-  - \floatplacement{table}{H} 
+  - \usepackage[spanish]{babel} # Idioma del documento
+  - \usepackage{float} # Para fijar los tablas y figuras
+  - \usepackage{setspace} # Para interlineado/espaciado
+  - \usepackage{fancyhdr} # Para encabezados 
+  - \floatplacement{figure}{H} # Fijar figuras
+  - \floatplacement{table}{H} # Fijar tablas
+  - \usepackage[style=numeric, backend=biber,sorting=none]{biblatex}
+  - \addbibresource{referencias.bib} # Archivo de referencias
+  - \setstretch{1.3} # Espaciado 1.3
+bibliography: referencias.bib
+geometry: a4paper, margin=1in
 ---
 
 ```{r setup, include=FALSE, message=FALSE}
 knitr::opts_chunk$set(echo = FALSE)
 library(ggplot2)
-library(ggthemr)
+#library(ggthemr)
 library(kableExtra)
 library(modelsummary)
 library(tidyverse)
 library(data.table)
+library(patchwork)
 ```
 
-```{=tex}
 \begin{center}
     \Large Maestría en Estadística Aplicada \\
     \Large Universidad Nacional de Córdoba \\
 \end{center}
-```
-
 \begin{figure}
 \centering
 \includegraphics[width=0.4\textwidth]{logoUNC_1.jpg}
 \end{figure}
-
-```{=tex}
 \begin{center} 
 
 \LARGE \textbf{Identificación de potencial sesgo por no respuesta en encuestas de hogares del nordeste argentino sobre el ingreso familiar y el nivel de pobreza}\\
@@ -40,13 +45,10 @@ library(data.table)
 
 \Large Documento de trabajo \\
 
-\Large Primer avance de resultados
+\Large Avance de resultados
 
 \end{center}
-\vspace*{2cm}
-```
-
-```{=tex}
+\vspace*{1cm}
 \begin{center}
 \noindent\begin{tabular}{@{}ll}
     Tesista & Lic. Celine Iliana Cabás\\
@@ -55,43 +57,231 @@ library(data.table)
     \end{tabular}
 \end{center}
 \vspace*{2cm}
-```
-
-```{=tex}
 \begin{center}
     \large Agosto 2024
 \end{center}
-```
 
-```{=tex}
+
 \newpage
 \tableofcontents
+\listoffigures
 \newpage
-```
-
-
-# Introducción
-
-# Antecedentes
-
-# Problema y objetivos
-
-# Metodología
-
-# Resultados
-
-Se presentan resultados preliminares del trabajo. 
 
 ```{r}
 # Cargamos resultados
 load("Resultados.RData")
 # Tema para los gráficos
-ggthemr("sky")
+# ggthemr("sky")
 ```
+
+\fancyhead{} 
+\rhead{\thepage}
+\lhead{} 
+\pagestyle{fancy}
+
+\chapter{Introducción}
+\label{Capitulo2}
+\lhead{Capítulo 2. \emph{Introducción}}
+
+En el campo estadístico del muestreo, la no respuesta es una de las principales problemáticas a abordar debido a que si no se comporta de manera aleatoria puede introducir sesgos en las distribuciones de las variables que nos interesan medir y, por lo tanto, en las conclusiones que saquemos de testear hipótesis a partir de ellas.
+
+\begin{quote}
+"Si la decisión de responder depende estadísticamente de las variables bajo investigación, entonces la submuestra de encuestados no reflejará con precisión la distribución real de las variables de interés en la población y esto, a su vez, dará como resultado inferencias basadas en muestras sistemáticamente sesgadas". \cite{korinek07}
+\end{quote}
+
+Con respecto a esta problemática, un producto estadístico muy estudiado son las encuestas de hogares que relevan los países para medir diversos indicadores económicos y sociales. Entre sus finalidades, una de ellas es poder conocer la distribución del ingreso de las familias e individuos de cierto entorno geográfico y poder realizar inferencia sobre ellas.
+
+A su vez, dentro de las medidas más relevantes calculadas a partir del ingreso, se encuentra el nivel de pobreza monetaria para las distintas unidades geográficas que conforman la muestra. Este indicador constituye una de las medidas centrales a tener en cuenta cuando se trata de implementación de políticas públicas.
+
+El presente trabajo tiene como objetivo identificar si existe presencia de sesgo por no respuesta unitaria en el ingreso familiar medido por encuestas de hogares relevadas en el nordeste argentino. El estudio se centra en los aglomerados urbanos de Gran Resistencia, Corrientes, Formosa y Posadas para los años 2018-2022 con periodicidad trimestral.
+
+De los distintos enfoques que existen para abordar el problema de la no respuesta, este proyecto pretende estudiar el caso particular de la no respuesta 'unitaria' que hace referencia a la pérdida de observaciones por entrevistas no realizadas. Se trabajará con modelos que determinen la potencial presencia de sesgo por no respuesta y, en caso de existir, se propondrán métodos de reponderación de los datos para minimizar el sesgo.
+
+En primera instancia, se pretende identificar si la cantidad total de entrevistas realizadas por un mismo hogar a lo largo del período depende estadísticamente o no del ingreso per cápita familiar y de otras variables que reflejen su condición socioeconómica. Siguiendo la literatura de Propensity Score Adjustment (PSA) se plantea un modelo logístico multinomial con variable de respuesta ordinal para estudiar si la predisposición a responder depende significativamente de las variables bajo estudio \cite{handbook} \cite{korinek07}.
+
+En el caso de probar la presencia potencial de sesgo, en segunda instancia se pretende trabajar con métodos de reponderación de los datos que utilicen la probabilidad predicha de respuesta de los hogares planteada como la predisposición a completar el esquema de panel de la encuesta. Posteriormente se pretende analizar las modificaciones sufridas por las distribuciones acumuladas de ingresos frente a los cambios en los factores de expansión de la encuesta.
+
+En este trabajo, se plantea esta problemática en el marco de la Encuesta Permanente de Hogares (EPH) para los aglomerados urbanos del nordeste argentino (NEA). Específicamente en lo que refiere al ingreso per cápita familiar y, por ende, al nivel de pobreza de los hogares. La selección de la región NEA viene justificada por el interés de estudiar si las marcadas diferencias entre el nivel de pobreza monetaria de Gran Resistencia y los demás aglomerados urbanos de la región puede verse justificada por diferencias observables en sus estructuras de no respuesta. Se pretende extender el ajuste del factor de expansión por probabilidad de respuesta implementado por el Instituto Nacional de Estadística y Censos (INDEC), haciendo especial énfasis en los aglomerados urbanos mencionados y en la propensión a responder de manera completa el esquema de la encuesta como principal diferencia observada entre ellos.
+
+Las consecuencias de las discontinuidades en los paneles de observaciones sobre la medición de indicadores socioeconómicos en aglomerados urbanos pequeños constituye aún una temática poco estudiada a nivel nacional, más allá de los avances metodológicos publicados por el INDEC \cite{indecmetod}. Resaltando que aún no se han realizado investigaciones de este tipo a nivel regional por lo cual este trabajo contribuye al área metodológica de medición del ingreso familiar y la pobreza monetaria medido por encuestas, para unidades geográficas pequeñas como es el caso de los aglomerados del NEA.
+
+```{r, message=FALSE, fig.cap="Resultados de pobreza e indigencia de los aglomerados urbanos del Nordeste Argentino, período 2017-I Trim a 2023-II Trim."}
+#grafico2 + grafico3 + plot_layout(guides = "collect") & theme(legend.position = "bottom")
+```
+
+![](Figura1.png)
+
+# Antecedentes
+
+## Marco teórico
+
+En la literatura se han propuesto y estudiado procedimientos para minimizar el sesgo por no respuesta en las distintas etapas de una encuesta. Ya sea respecto a cómo tratar la no respuesta antes y durante la recolección de datos, previendo cuestiones vinculadas al contacto con la persona encuestada, como también métodos que evalúan sesgos potenciales posterior a la recolección y maneras de corregirlos \cite{plansurvey05}. En esta investigación se trabajará en el segundo aspecto, ya que se emplearán datos secundarios relevados por programas nacionales.
+
+En estudios basados en muestras, puede darse que la no respuesta no se comporte de manera aleatoria. Es decir, cuando las personas que sí respondieron a la encuesta difieren significativamente de aquellas que no lo hicieron, debe tenerse cuidado respecto a la validez de la inferencia porque se estaría trabajando con distribuciones sesgadas \cite{wmethods}.
+
+En esta línea, el problema de la no respuesta puede entenderse principalmente de dos maneras. Como "no respuesta al ítem", cuando el individuo no responde a un ítem en particular pero sí participa de la encuesta, o como "no respuesta unitaria", donde el individuo directamente no realiza la entrevista \cite{korinek07}. Ambas problemáticas pueden ser abordadas mediante técnicas de imputación, o bien mediante técnicas de reponderación de los datos que corrijan sesgos de selección.
+
+Entonces, ¿cómo detectar el sesgo por no respuesta? Existen diversas alternativas como el test de Little para determinar si el patrón de la no respuesta sigue un comportamiento completamente aleatorio \cite{tesisgonz}. Otra alternativa son los test chi-cuadrado de contraste de independencia, o bien modelos de regresión logísticos de respuesta binaria o politómica que permiten testear si existe relación entre ciertas variables de interés y la propensión a responder de los hogares.
+
+Una vez detectado que la no respuesta no sigue un comportamiento aleatorio en la muestra, la siguiente cuestión a resolver es cómo lidiar con ella ¿de qué manera corregir el sesgo? Existen técnicas de imputación para sustituir individuos no encuestados, por ejemplo dividir la muestra en subclases e imputar un individuo similar a la misma subclase. Además, se desarrollaron métodos basados en variables auxiliares que son ampliamente utilizados, conocidos como métodos de calibración. Estas variables deben estar disponible para los respondentes y al mismo tiempo conocer algún tipo de información sobre la distribución de esta variable en la población \cite{handbook} \cite{psa_calib_onlinesv}.
+
+Por otro lado, una alternativa muy utilizada son los modelos basados en la probabilidad de respuesta ampliamente conocidos como Propensity Score Adjustment (PSA). Estos métodos parten desde modelos logísticos de respuesta binaria o modelos multinomiales de respuesta politómica hasta modelos más modernos vinculados a la literatura de Machine Learning (CART, RF, XGBoost) como los trabajos de \cite{methodsml}, \cite{methodsml_medicine}, \cite{methodsml_3} que predicen esta probabilidad para incluirla en el factor de expansión de la encuesta. El objetivo de este método es mejorar la representatividad en la muestra de aquellos hogares con baja propensión a responder respecto a aquellos con alta propensión a responder, y de esta manera equilibrar su estructura y corregir posibles sesgos \cite{handbook}.
+
+Una vez calculada la probabilidad, el método más usual es el de la ponderación inversa de la probabilidad que recalibra los pesos de los hogares con baja probabilidad de respuesta mejorando su representatividad en la muestra \cite{methodsml}. En esta instancia, es importante trabajar con variables de grupos o áreas muestrales que suavicen los ajustes de los pesos de diseño.
+
+En línea con lo anterior, dependiendo la flexibilidad del modelo implementado para la predicción de la probabilidad de respuesta, tendremos mayor o menor varianza en las estimaciones basados en los factores de expansión corregidos. Por este motivo, otro aspecto importante a tener en cuenta es el efecto del sobreajuste con potenciales costos en el incremento de la variabilidad de las estimaciones de nuestra variable de interés. Se han desarrollado y estudiado la eficacia de métodos conocidos como de Weight Smoothing para reducir la varianza de los estimadores mediante el modelado de los ponderadores condicionados a las variables de interés \cite{wsmooth}.
+
+## Antecedentes empíricos
+
+La investigación \cite{korinek07} trabaja con la encuesta Current Population Survey (CPS) de U.S. Census Bureau para analizar la sensibilidad de la distribución acumulada del ingreso frente a ajustes en los factores de expansión basados en la no respuesta unitaria. Para ello, plantea una especificación de la propensión a responder como función del ingreso y utiliza estas predicciones en la corrección de la matriz de varianzas y covarianzas del ingreso mediante GMM (Generalized method of moments).
+
+Por otro lado, el artículo de Pkewis y Shlomo \cite{longitudinal-non-response} estudia estrategias para mantener la representatividad, en este caso, en muestras longitudinales en vistas a mejorar la asignación de recursos en el relevamiento de este tipo de encuestas. Trabaja con la encuesta UK Millennium Cohort Study (MCS) definiendo subgrupos en base al menor o mayor trabajo de mantenimiento o intervención que requieran según su propensión a responder. Aplica los modelos de PSA con indicadores R de representatividad y curvas ROC para definir los grupos que requieren seguimiento. Otro ejemplo de estudios en muestras longitudinales es el de König y Sakshaug \cite{longitudinal-empresas} sobre la encuesta alemana IAB Establishment Panel (IAB-EP) donde analizan tendencias en la tasa de respuesta en un período de 17 años. Describen las dificultades que existen para mantener la motivación de los establecimientos en seguir participando en el panel de entrevistas y cómo esta motivación disminuye luego de la primera entrevista.
+
+En relación a antecedentes empíricos en Argentina, el trabajo de Comari y Hoszowski \cite{nonresponsearg} estudia el efecto de la no respuesta en el panel rotativo de la EPH entre 2005 y 2011 sobre la estimación de la tasa de desempleo a nivel nacional. Encuentra que existe relación entre el número de participaciones (entrevistas realizadas por hogar) y el nivel de la tasa de desempleo. Los hogares con mayor número de participaciones tienen mayor probabilidad de menores tasas de desempleo. Trabajando con indicadores agregados a nivel nacional, concluyen que la incidencia de sesgo por desvíos en el esquema rotativo es débil aunque puede deberse a mejoras en las participaciones.
+
+Sin embargo, el impacto de esta problemática sobre los resultados de indicadores para aglomerados urbanos pequeños aún es poco estudiado en Argentina más allá de los trabajos realizados por el instituto nacional. El INDEC ha incorporado actualizaciones metodológicas con ajustes por probabilidad de respuesta en su factor de expansión basado en variables como nivel educativo, edad, cantidad de ocupados y desocupados, régimen de tenencia de la vivienda, entre otras variables demográficas y socioeconómicas del hogar \cite{indecmetod}. Con respecto a la variable ingreso, la no respuesta fue abordada desde el enfoque de \`\`no respuesta al ítem" con correcciones a niveles de ingresos mediante ajustes a los pesos de diseño asignando a los no respondentes el comportamiento de los respondentes por estratos \cite{indecmetod2}. En el presente proyecto de investigación se plantea que los efectos sobre el ingreso deberían ser abordados también desde la no respuesta unitaria.
+
+Para el caso argentino, los trabajos de investigación en su mayoría abordan la problemática de la discontinuidad en los paneles de observaciones al momento de evaluar el impacto y resultados de políticas públicas sobre variables socioeconómicas que son medidas en el tiempo para un mismo individuo u hogar. Algunos ejemplos de ellos son los trabajos \cite{psm_gasparini} y \cite{auh_psm} que incorporan técnicas de Propensity Score Matching (PSM). En el primer caso, para evaluar la presencia de sesgo de informalidad laboral de un programa social de transferencias a jefes de hogares desempleados y en el segundo caso, para analizar la eficacia del prgrama social Asignación Universal por Hijo (AUH) como amortiguador de la inestabilidad de ingresos de los hogares económicamente vulnerables en Argentina.
+
+# Formulación del problema y objetivos
+
+La **pregunta de investigación** planteada en este trabajo es la siguiente:
+
+¿Qué efectos tiene la presencia de sesgo por no respuesta en encuestas de hogares del nordeste argentino sobre la estimación del ingreso familiar y el nivel de pobreza?
+
+El **objetivo general** es identificar la potencial presencia de sesgo por no respuesta en encuestas de hogares del nordeste argentino y sus efectos sobre el ingreso familiar y el nivel de pobreza durante el período 2018-2022.
+
+Los **objetivos específicos** son:
+
+-   Comparar las estructuras de respuesta de la encuesta de hogares entre los aglomerados urbanos del nordeste argentino para el período 2018-2022.
+-   Comprobar si la predisposición a responder por parte de los hogares depende significativamente del ingreso familiar u otras variables en los distintos aglomerados urbanos del nordeste argentino.
+-   Comparar modelos para predecir la probabilidad de los hogares de responder de manera completa el esquema de entrevistas de la encuesta.
+-   Plantear una corrección del sesgo por no respuesta basada en la probabilidad predicha de responder mediante técnicas de reponderación de los datos.
+-   Contrastar las distribuciones de ingresos y el nivel de pobreza estimado antes y después de la corrección por no respuesta.
+
+# Fuentes de información
+
+La principal fuente de información de este trabajo es la Encuesta Permanente de Hogares (EPH) relevada por el Instituto Nacional de Estadísticas y Censos (INDEC) de la República Argentina, que se constituye como un programa nacional de relevamiento de información sobre trabajo e ingresos de los hogares y es empleada para el cálculo de la pobreza. Se trabajará con las bases de datos por hogar e individuo de periodicidad trimestral para el período que comprende el primer trimestre 2018 al cuarto trimestre 2022. El listado preliminar de variables a utilizar se presenta en el Cuadro 1.
+
+Se complementa su uso con el Índice de Precios al Consumidor (IPC) para deflactar los ingresos y la valorización de la canasta básica total (CBT) para la determinación de la condición de pobreza o no del hogar por período. Ambas variables definidas para la región nordeste de Argentina.
+
+\begin{table}
+    \centering
+\caption{Variables preliminares a utilizar en EPH individual y hogar.}
+
+\
+
+\label{tab:my_label}
+    \begin{tabular}{|rl|} 
+        \hline
+        \textbf{Variable} & 
+        \textbf{Descripción} \\ 
+        \hline
+
+        \textbf{Identificación}&\\
+        CODUSU & Código de identificación de la vivienda\\
+        NRO\_HOGAR & Código de identificación del hogar \\
+        REGION&Código de región geográfica\\
+        AGLOMERADO & Código de aglomerado urbano \\
+        ANO4&Año de relevamiento\\
+        TRIMESTRE&Trimestre de relevamiento\\
+        
+        \hline
+        \textbf{Base individual}&\\
+        CH03&Relación de parentesco (Jefe de hogar=1)\\
+        CH04&Sexo\\
+        CH06&Edad \\
+        NIVEL\_ED&Nivel educativo\\
+        ESTADO&Condición de actividad\\
+        CAT\_OCUP&Categoría ocupacional\\
+        
+        \hline
+        \textbf{Base hogar}&\\
+        IV1&Tipo de vivienda\\
+        IX\_TOT&Cantidad de miembros del hogar\\
+        ITF&Ingreso total familiar\\
+        IPCF&Ingreso per cápita familiar\\ 
+
+        \hline
+        \textbf{Variable de respuesta}&\\
+        NRO\_REP&Número de entrevistas realizadas en el período 2018-2022\\ 
+        
+        \textbf{Ponderador}&\\
+        PONDIH&Ponderador del ITF y del IPCF\\
+        \hline
+    \end{tabular}
+    
+    
+\end{table}
+
+La muestra sigue un esquema de rotación trimestral de las viviendas por área muestral. Es decir que, idealmente, una misma vivienda debe ser encuestada dos trimestres consecutivos, descansar los dos trimestres subsiguientes y volver a ser encuestada dos trimestres consecutivos más para garantizar la estructura de panel de datos que caracteriza a la encuesta. Sin embargo, debido a la no respuesta no todos los hogares completan el esquema. Por lo cual, el número de entrevistas realizadas (del 1 al 4) nos sirve como variable proxy para medir la menor o mayor tendencia a responder que tienen los hogares que son encuestados.
+
+Dado que los datos públicos de la encuesta incluyen únicamente los casos con entrevista realizada, para poder estudiar la probabilidad de respuesta de los hogares trabajaremos con la variable que cuenta el número de entrevistas realizadas en todo el período considerado. Es decir, los hogares que sólo contestaron un trimestre de los cuatro que corresponden tienen baja propensión a responder mientras que los que contestaron las cuatro veces tiene alta propensión a responder. De esta manera, podremos evaluar si existen diferencias sistemáticas en la probabilidad de responder más o menos veces según el nivel de ingreso y otras variables socioeconómicas.
+
+En los datos se observa que el grupo mayoritario de casos corresponde al de hogares que respondieron 4 veces, es decir, aquellos que completaron el esquema de la encuesta. Dado que además este es el escenario ideal de respuesta al que buscan llegar los paneles de encuestas, se trabajará con una indicadora de si completó o no el total de entrevistas para plantear el modelo de probabilidad.
+
+
+# Metodología
+
+En una primera etapa, se realizará un análisis descriptivo de la estructura de la muestra para los cuatro aglomerados urbanos que representan al nordeste argentino en la encuesta (Gran Resistencia, Corrientes, Formosa y Posadas). Esto permitirá observar, a priori, si existen diferencias importantes en el número de entrevistas realizadas por hogar que pueda causar sesgos por no respuesta.
+
+Además, se trabajará un modelo que explique el ingreso per cápita a precios constantes de los hogares en base a distintas características socioeconómicas con el objetivo de testear si, controlando por estas variables, el número de repeticiones tiene una relación significativa con el ingreso. Dada la estructura de panel de los datos se implementará un modelo mixto con ordenada aleatoria para controlar la heterogeneidad de los hogares. Este modelo y el análisis descriptivo anterior constituirán una primera exploración de la relación subyacente entre ingresos familiares y la propensión a responder a la encuesta por parte de los hogares.
+
+Siguiendo a ~ \cite{korinek07} y \cite{handbook}, en una segunda etapa se ajustará un modelo lineal generalizado multinomial de respuesta politómica ordinal que explique el número de entrevistas realizadas por hogar (del 1 al 4) para testear la aleatoriedad teórica que esta variable debería tener respecto a distintas características socioeconómicas. En caso de identificar la presencia de sesgo porque la decisión de responder depende de las variables de interés, pasamos a la siguiente etapa. Se estudiarán distintas especificaciones del modelo respecto al ingreso familiar como nuestra variable de interés principal.
+
+Con el objetivo de predecir la probabilidad de respuesta de los hogares basado en la propensión que tengan a completar el esquema de la encuesta, se compararán modelos alternativos para PSA como ser el logístico, DecisionTree, Random Forest y XGBoost seleccionando el de mejor desempeño para esta aplicación en particular \cite{methodsml}. Este modelo tendrá el objetivo final de equilibrar las estructuras de respuesta de los aglomerados y corregir el posible sesgo mediante una reponderación de los datos que mejore la representatividad de los casos con baja propensión a responder. 
+
+Por último, para analizar el efecto de la no respuesta sobre el ingreso per cápita familiar y el nivel de pobreza por aglomerado urbano, se compararán las distribuciones de ingresos pre y post corrección. Lo cual implicará el análisis principalmente de las colas de la distribución que representan los percentiles de más bajos y mayores ingresos \cite{korinek07}. En este último punto del trabajo, se estimarán las distribuciones acumuladas empíricas de ingresos familiares modificando los factores de expansión basado en PSA.
+
+## Modelo lineal generalizado multinomial: respuesta categórica ordinal
+
+Siguiendo a Agresti \cite{agresti} y ..., los modelos de regresión logística con respuesta categórica binaria pueden extenderse a modelos de regresión con variables de respuesta categórica múltiple, con más de dos categorías. Dependiendo de la característica nominal u ordinal de la variable respuesta, se puede trabajar con: (1) modelos logísticos con una categoría de referencia (baseline-category logit models), o bien (2) modelos logísticos acumulativos. En este trabajo se aplicará el segundo caso para la identificación de potencial sesgo por no respuesta basado.
+
+El modelo multinomial que tiene en cuenta el orden de las categorías es llamado modelo logit acumulativo para respuesta categórica ordinal. Estos modelos estiman los coeficientes de manera tal que se contrastan respecto a las escalas superiores vs inferiores de la variable ordinal, a diferencia del otro tipo de modelo ordinal que compara respecto a una categoría de referencia. Por lo tanto, ajustan una cantidad menor de parámetros y son relativamente más simples de interpretar. Como este
+
+$$P(Y\leq j)=\pi_1+...+\pi_j, j=1,...,c$$
+
+$$P(Y \leq 1) \leq P(Y \leq 2) \leq ... \leq P(Y \leq c)=1$$
+
+Los modelos ordinales acumulativos consideran el orden de las categorías modelando las probabilidades acumuladas
+
+$$P(Y\leq r| \textbf{x})=\sum_{j=1}^r p_j(\textbf{x})$$
+En términos generales, estos modelos asumen la existencia de una variable subyacente continua no observable $U$ tal que: 
+
+$$Y=c \iff \theta_{c-1} < U \leq \theta_r,$$
+donde $c=1,...,J$ y $- \infty = \theta_0 < \theta_1<...<\theta_j= \infty$.
+
+Dado el vector de variables explicativas $\textbf{x}$, se asume que podemos expresar a esta variable de la forma $U=-\textbf{x}' \boldsymbol{\beta} + \varepsilon$ donde $\boldsymbol{\beta}$ es un vector de parámetros desconocidos y $\varepsilon$ es una variable aleatoria con función de distribución acumulada F. Teniendo
+
+Dado que $Y=c \iff \theta_{c-1} < U \leq \theta_{c}$, $U=-\textbf{x}'\boldsymbol{\beta} + \varepsilon$ y $\varepsilon \sim F$, resulta:
+
+$$P(Y \leq c | \textbf{x})=P(U \leq \theta_c)=P(\varepsilon \leq \theta_c + \textbf{x}'\boldsymbol{\beta})=F(\theta_c+\textbf{x}'\boldsymbol{\beta})$$
+
+y siendo 
+
+$$F^{-1}(P(Y\leq c| \textbf{x})) = \theta_c + \textbf{x} \boldsymbol{\beta}$$
+
+
+
+
+
+
+
+## Bootstrap
+
+Empleamos bootstrap en la estimación de los errores estándar de 
+
+Bootstrap no requiere del cumplimiento de los supuestos del modelo para computar los errores estándar de las estimaciones, por lo cual es más probable de arrojar una estimación más precisa de los errores estándar de los coeficientes del modelo.
+
+
+
+
+# Resultados
+
 
 ## Caracterización de estructuras de respuesta
 
-Trabajando con la variable de cantidad total de entrevistas realizadas por el hogar en el período, podemos tener una aproximación de cuál es la propensión de los hogares a responder. Analizamos esta propensión por aglomerado urbano teniendoe en cuenta la proporción de hogares en la muestra según el número de entrevistas realizadas (Tabla 1). 
+Trabajando con la variable de cantidad total de entrevistas realizadas por el hogar en el período, podemos tener una aproximación de cuál es la propensión de los hogares a responder. Analizamos esta propensión por aglomerado urbano teniendoe en cuenta la proporción de hogares en la muestra según el número de entrevistas realizadas (Tabla 1).
 
 Vemos entonces que alrededor del 5% de los hogares contesta sólo una vez en Corrientes, Posadas y Formosa mientras que para Gran Resistencia este porcentaje sube a casi 14%. Además, aproximadamente el 10% de los hogares responde dos veces en estas mismas localidades mientras que en Gran Resistencia tenemos que el 22% responde sólo dos veces. En el caso de tres encuestas realizadas, las proporciones de hogares en cada categoría son bastantes variadas entre aglomerados. Sin embargo cuando se trata de completar el esquema de la encuesta, es decir, contestar los cuatro trimestres del esquema de rotación de hogares, Gran Resistencia se ubica en aproximadamente 32% mientras que los demás aglomerados superan el 60%.
 
@@ -104,10 +294,14 @@ kbl(tabla1,
   add_header_above(c(" "=1,"Entrevistas realizadas"=4))
 ```
 
+```{r, message=FALSE, fig.scap="Resultados de pobreza e indigencia de los aglomerados urbanos del Nordeste Argentino, período 2017-I Trim a 2023-II Trim."}
+grafico1
+```
+
 Si pasamos a analizar esta estructura de respuesta en el tiempo, vemos que los aglomerados de Corrientes, Formosa y Posadas mantienen un porcentaje de hogares con esquema completo superior al 60% en casi todos los casos mientras que Gran Resistencia presenta una estructura muy distinta. La distribución de proporciones de hogares por categoría es bastante cambiante además de que en la mayoría de los casos los hogares con esquema de respuesta completo no superan el 50%.
 
 ```{r, fig.cap="Estructura de respuesta por aglomerado urbano del NEA, período 2018-2022.", fig.align='center', fig.height=5}
-grafico1
+#grafico1
 ```
 
 ## Identificación de sesgo por no respuesta
@@ -121,10 +315,9 @@ kbl(tabla2, align = c("l","c","c","c"),
     caption = "Resultados de pruebas chi-cuadrado de asociación de variables.")
 ```
 
+En segunda instancia y con el objetivo de detectar el sesgo por no respuesta, se plantea un modelo lineal generalizado multinomial de respuesta politómica ordinal que busca testear relaciones estadísticamente significativas entre el número de entrevistas realizadas (del 1 al 4) y el ingreso además de otras variables de interés socioeconómico.
 
-En segunda instancia y con el objetivo de detectar el sesgo por no respuesta, se plantea un modelo lineal generalizado multinomial de respuesta politómica ordinal que busca testear relaciones estadísticamente significativas entre el número de entrevistas realizadas (del 1 al 4) y el ingreso además de otras variables de interés socioeconómico. 
-
-Del modelo ajustado resulta que la chance de contestar pocas veces en vez de varias veces o completar el esquema de entrevistas aumenta en un 0.265% a medida que el ingreso per cápita familiar en términos reales aumenta en un 1% en Gran Resistencia. En Corrientes, Formosa y Posadas este efecto es 0.188%, 0.273% y 0.262% respectivamente. Por otro lado, la chance de contestar pocas veces en vez de varias o bien completar el esquema aumenta en 0.074% a medida que el hogar promedio suma un miembro adicional. 
+Del modelo ajustado resulta que la chance de contestar pocas veces en vez de varias veces o completar el esquema de entrevistas aumenta en un 0.265% a medida que el ingreso per cápita familiar en términos reales aumenta en un 1% en Gran Resistencia. En Corrientes, Formosa y Posadas este efecto es 0.188%, 0.273% y 0.262% respectivamente. Por otro lado, la chance de contestar pocas veces en vez de varias o bien completar el esquema aumenta en 0.074% a medida que el hogar promedio suma un miembro adicional.
 
 ```{r}
 cuadro_modelos_glm <- 
@@ -135,18 +328,50 @@ cuadro_modelos_glm <-
                estimate = "{estimate}{stars}",
                statistic = "p.value")
 cuadro_modelos_glm <- cuadro_modelos_glm[,-1]
+
 kbl(cuadro_modelos_glm, 
-    align = c("l","c","c","c","c","c","c","c","c"),
+    align = c("l","l","r","l","r","l","r","l","r"),
     booktabs = TRUE, 
     format="latex",
     caption = "Modelos para cantidad de entrevistas realizadas por aglomerado urbano.",
     col.names = c(" ","OR","p","OR","p","OR","p","OR","p")) %>% 
-  kable_styling(latex_options = "striped") %>% 
+  kable_styling(latex_options = c("striped", "scale_down")) %>% 
   row_spec(4,bold=TRUE) %>% 
   add_header_above(c(" "=1,
-                     "Gran Rcia"=2, "Corrientes"=2, "Formosa"=2, "Posadas"=2))
+                     "Gran Rcia"=2, "Corrientes"=2, 
+                     "Formosa"=2, "Posadas"=2)) %>% 
+  
+  footnote(general="+ p < 0.1, * p < 0.05, ** p < 0.01, *** p < 0.001",
+           general_title = "Nota:")
 ```
 
+
+Resultados bootstrap de los coeficientes del modelo anterior
+
+```{r}
+load("Resultados_bootstrap.RData")
+
+tabla_boot <- tabla_boot %>% 
+  mutate(intervalo = paste0("[",lim.inf,", ",lim.sup,"]")) %>% 
+  # mutate(coeficiente = case_when(coeficiente=="logIPCF_d" ~ "Log(IPCFd)",
+  #                                coeficiente=="CH06" ~ "Edad",
+  #                                coeficiente=="I(CH06^2)" ~ "Edad^2",
+  #                                coeficiente=="casa" ~ "Casa/Dpto",
+  #                                ))
+  select(coeficiente, original, bootstrap, intervalo)
+
+tabla_boot %>% 
+  kable(format = "latex", booktabs = TRUE, align = c("l","c","c","c"),
+        caption = "Resultados de simulación por bootstrap
+        para coeficientes de los modelos multinomiales, por aglomerado urbano.",
+        col.names = c(" ", "Original", "Bootstrap","IC 95% (percentiles)")) %>% 
+  kable_styling(latex_options = c("hold_position","striped","scale_down")) %>% 
+  kableExtra::group_rows("Gran Resistencia", 1, 6) %>%
+  kableExtra::group_rows("Corrientes", 7, 12) %>%
+  kableExtra::group_rows("Formosa", 13, 18) %>%
+  kableExtra::group_rows("Posadas", 19, 23)
+
+```
 
 En tercera instancia, como proceso exploratorio del sesgo por no respuesta, ajustamos modelos para explicar el ingreso per cápita familiar en términos reales (deflactado). Dado que el ingreso, y posteriormente el nivel de pobreza, son nuestras principales variables de interés en este estudio analizamos si controlando esta variable por factores de influencia puede captarse una dependencia de las entrevistas realizadas.
 
@@ -168,10 +393,11 @@ kbl(cuadro_modelos_panel,
     booktabs = TRUE, 
     format="latex",
     caption = "Modelos para logaritmo del ingreso per cápita familiar deflactado por aglomerado urbano.") %>% 
-  kable_styling(latex_options = "striped") %>% 
-  row_spec(39:40,bold=TRUE)
+  kable_styling(latex_options = c("striped", "scale_down")) %>% 
+  row_spec(39:40,bold=TRUE) %>% 
+  footnote(general="+ p < 0.1, * p < 0.05, ** p < 0.01, *** p < 0.001",
+           general_title = "Nota:")
 ```
-
 
 ## Métodos de reponderación de la muestra
 
@@ -183,20 +409,15 @@ Una vez seleccionado el mejor modelo, se corrigen los factores de expansión. Po
 
 Corregidos los ponderadores, se pretende comparar las distribuciones del ingreso per cápita familiar acumulado para ver posibles cambios pre y post corrección por no respuesta y balanceo de la muestra. Pasando posteriormente a analizar los cambios en el nivel de pobreza monetaria que depende del ingreso.
 
-
 # Tareas pendientes/dudas por resolver
 
-* Probar algún método como stepwise que funcione con los modelos multinomiales para intentar mejorar la bondad de ajuste del modelo. Igualmente este quedaría como modelo más bien descriptivo para la interpretación de los OR.
+-   Probar algún método como stepwise que funcione con los modelos multinomiales para intentar mejorar la bondad de ajuste del modelo. Igualmente este quedaría como modelo más bien descriptivo para la interpretación de los OR.
 
-* Como se está trabajando con una muestra, ver alguna manera de robustecer los resultados con boostrap por ejemplo (si es apropiado). Para el modelo multinomial principalmente, vi algunos papers que lo hacen así.
+-   Como se está trabajando con una muestra, ver alguna manera de robustecer los resultados con boostrap por ejemplo (si es apropiado). Para el modelo multinomial principalmente, vi algunos papers que lo hacen así.
 
-* En principio probar la corrección del PONDIH con el método propuesto (dividiéndolo por la probabilidad de que el hogar complete el esquema de la encuesta y reescalando para mantener los pesos de las áreas muestrales), pero hay otros cálculos alternativos que usan la probabilidad de respuesta también. Investigar un poco esto.
+-   En principio probar la corrección del PONDIH con el método propuesto (dividiéndolo por la probabilidad de que el hogar complete el esquema de la encuesta y reescalando para mantener los pesos de las áreas muestrales), pero hay otros cálculos alternativos que usan la probabilidad de respuesta también. Investigar un poco esto.
 
-* Ver métodos de optimización de hiperparámetros y validación cruzada para los modelos de predicción de la probabilidad de respuesta completa. Incluir esto previo al análisis de medidas de bondad de ajuste de la clasificación para mejorar los modelos.
+-   Ver métodos de optimización de hiperparámetros y validación cruzada para los modelos de predicción de la probabilidad de respuesta completa. Incluir esto previo al análisis de medidas de bondad de ajuste de la clasificación para mejorar los modelos.
 
-* La idea previamente a ver resultados sobre pobreza es ver cómo se modifica la distribución del ingreso per cápita familiar. Principalmente la distribución acumulada para analizar las colas (percentiles vs ingreso acumulado), hasta ahora va quedando que la distribución corregida queda por debajo de la original lo que indicaría que los percentiles de más bajos ingresos (influyentes para el nivel de pobreza) acumulan más ingreso. Vengo usando la función wtd.Ecdf() que calcula la distribución empírica ponderada pero no sé si es muy apropiada porque las curvas no quedan suavizadas, al contrario parecen sobreajustadas. Probé usando GMM (Método generalizado de momentos) para una gamma o normal inversa pero no estoy segura si ese método admite ponderaciones.
-
-
-
-
+-   La idea previamente a ver resultados sobre pobreza es ver cómo se modifica la distribución del ingreso per cápita familiar. Principalmente la distribución acumulada para analizar las colas (percentiles vs ingreso acumulado), hasta ahora va quedando que la distribución corregida queda por debajo de la original lo que indicaría que los percentiles de más bajos ingresos (influyentes para el nivel de pobreza) acumulan más ingreso. Vengo usando la función wtd.Ecdf() que calcula la distribución empírica ponderada pero no sé si es muy apropiada porque las curvas no quedan suavizadas, al contrario parecen sobreajustadas. Probé usando GMM (Método generalizado de momentos) para una gamma o normal inversa pero no estoy segura si ese método admite ponderaciones.
 
