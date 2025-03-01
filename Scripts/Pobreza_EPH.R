@@ -441,7 +441,7 @@ save(res.boot.GR, res.boot.Ctes, res.boot.Fmsa, res.boot.Psdas, tabla_boot,
 
 # Modelos alternativos para probabilidades predichas -----------------------------
 
-library(caret)       # Para matriz de confusión
+library(caret)       # Para matriz de confusión y validación cruzada
 library(rpart)       # Árbol de decisión
 library(rpart.plot)  # Plot árbol de decisións
 library(stats)       # Medidas de bondad de clasificación
@@ -450,6 +450,13 @@ library(performance) # Para curva ROC
 
 # Indicadora de esquema completo (responde 4 veces)
 individual_NEA[, completo:= ifelse(nro_rep==4, 1, 0)]
+
+# Anexamos variables de la base hogar (características de la vivienda)
+individual_NEA <- merge.data.table(individual_NEA, hogar_NEA[,c(3:6,13,14,16:19,21:24,26,27:39,41,43)],
+                                   by = c("ANO4","TRIMESTRE","CODUSU","NRO_HOGAR"), all.x=T)
+
+# Base para jupyternotebook
+fwrite(individual_NEA, "Bases/individual_NEA_prediccion.txt", sep=";",encoding = "UTF-8")
 
 # Variables a utilizar (agregar más)
 formula <- "completo ~ logIPCF_d + CH06 + I(CH06^2) + IX_TOT + casadpto + basural + 
@@ -477,9 +484,54 @@ for (i in unique(individual_NEA$AGLO_DESC)){
   }
 }
 
+# Analizamos que variables eliminar 
+lapply(individual_NEA_train, FUN=function(x){sum(is.na(x))})
+summary(individual_NEA_train)
+
+
+# Eliminamos variables de identificación del hogar que no hacen al análisis en los modelos
+# individual_NEA_train <- individual_NEA_train %>% 
+#   select(- index, - nro_rep, - area, - n_entrevista, - AGLOMERADO, - ANO4, - periodo, - caes_version,
+#          - TRIMESTRE, - CODUSU, - NRO_HOGAR, - COMPONENTE, - H15, - REGION, - REGION_DESC, -V178,
+#          - PONDERA, - PONDIH, -PONDIIO, -PONDII, - REGION_COD, - ipc_b24, - CH03, -GDECINDR, -CH05,
+#          - AGLO_DESC, -ice, -hogar_pobre, -hogar_indigente, -contains("PP02"), -contains("PP03"),
+#          -contains("PP04"), -contains("PP05"), -contains("PP06"), - contains("PP07"), -contains("PP08"),
+#          -contains("PP09"), -contains("PP10"), -contains("PP11"), CH05, -GDECCFR, -GDECOCUR, -DECOCUR, -GDECIFR,
+#          -IDECOCUR, -PDECOCUR, -PDECINDR, -PDECIFR, -PDECCFR, -ADECOCUR, -ADECINDR, -ADECIFR, -ADECCFR, -adequi, -anio)
+
+# Muestra de entrenamiento
+individual_NEA_train <- individual_NEA_train %>% 
+  select(completo, IPCF_d, CH06, IX_TOT, informal, NIVEL_ED, mujer, casadounido, ESTADO, 
+         CAT_INAC, CAT_OCUP, otros_ing_nolab, IV1, IV2, IV3, IV4, IV5, IV6, IV7, IV8, IV9,
+         IV10, IV11, IV12_1, IV12_2, IV12_3, II1, II2, II3, II3_1, II4_1, II4_2, II4_3,
+        II5, II5_1, II6, II6_1, II7, II8, II9, RDECOCUR, ADECOCUR) %>% 
+  mutate(CH06_2 = CH06^2)
+
+# Muestra de testeo
+individual_NEA_test <- individual_NEA_test %>% 
+  mutate(CH06_2 = CH06^2)
+
+# Muestra completa
+individual_NEA <- individual_NEA %>% 
+  mutate(CH06_2 = CH06^2)
 
 # 1) Modelo logístico # --------------------
-modelo_logit <- glm(formula, data=individual_NEA_train, family = binomial(link="logit"))
+
+# Stepwise
+modelofull <- glm(completo~., data=individual_NEA_train)
+modelonull <- glm(completo~1, data=individual_NEA_train)
+
+# Cantidad posible de modelos (841)
+29^2
+
+steplogit <- step(modelonull,
+                  scope = list(lower=modelonull, upper=modelofull),
+                  direction = "forward")
+steplogit$formula
+
+modelo_logit <- glm(formula=steplogit$formula, 
+                    data=individual_NEA_train, 
+                    family = binomial(link="logit"))
 summary(modelo_logit)
 
 # Clases predichas
@@ -510,10 +562,26 @@ medidas <- rbind(medidas,
                             VPN = round(cm_logit$byClass[["Neg Pred Value"]], 5),
                             auc = round(ROCR::performance(pred.logit, measure = "auc")@y.values[[1]], 5)))
 
+# Prediction error
+# Cross validation
+cv_error <- cv.glm(data=individual_NEA_train, glmfit = modelo_logit, K = 10)
+cv_error$delta
+
+# Leave-One-Out (manual con los hatvalues, en caso de regresión logística)
+muhat <- fitted(modelo_logit)
+modelo.diag <- glm.diag(modelo_logit)
+cv.error <- mean((modelo_logit$y - muhat)^2/(1-modelo.diag$h)^2)
+cv.error
+
+# Cross validation (Leave-One-Out)
+# cv_error <- cv.glm(data=individual_NEA_train, glmfit = modelo_logit)
+# cv_error$delta
+
+
 # 2) Árbol de decisión # ----------------
 
 # Ajuste
-modelo_rpart <- rpart(formula, data = individual_NEA_train, control = rpart.control(cp=0))
+modelo_rpart <- rpart(completo ~ ., data = individual_NEA_train, control = rpart.control(cp=0))
 
 # Poda del árbol según relación costo-complejidad 
 printcp(modelo_rpart)
@@ -555,12 +623,8 @@ medidas <- rbind(medidas,
 # 3) Random Forest # --------------
 library(randomForest)
 
-# Chequeamos na
-apply(is.na(individual_NEA_train), 2, sum)
-
 # Ajustamos el modelo
-modelo_rf <- randomForest(completo ~ logIPCF_d + CH06 + I(CH06^2) + IX_TOT + basural + informal +
-                            NIVEL_ED + mujer + casadounido + ESTADO + CAT_INAC + CAT_OCUP + otros_ing_nolab, 
+modelo_rf <- randomForest(completo ~ ., 
                           data = individual_NEA_train, 
                           importance = T, 
                           na.action=na.omit, 
@@ -593,33 +657,95 @@ medidas <- rbind(medidas,
                             VPN = round(cm_rf$byClass[["Neg Pred Value"]], 5),
                             auc = round(ROCR::performance(pred.rf, measure = "auc")@y.values[[1]], 5)))
 
-
-
-# Guardamos las probabilidades predichas
-individual_GR$prob_completo <- predict(modelo, individual_GR, type="prob")[,2]
-hist(individual_GR$prob_completo)
-hist(individual_GR$prob4)
-names(individual_GR) <- c(names(individual_GR)[1:224], "prob1", "prob2", "prob3", "prob4")
+# Validación cruzada
+Y <- individual_NEA_train$completo
+X <- individual_NEA_train[,-"completo"]
+cv_error_rf <- rfcv(X,Y,cv.fold=10)
+cv_error_rf
 
 
 # XGBoost
 library(xgboost)
 
-individual_NEA_test <- individual_NEA_test %>% 
+individual_NEA_train1 <- individual_NEA_train %>% 
   dplyr::select(logIPCF_d, CH06, IX_TOT, casadpto, basural, leer, NIVEL_ED, mujer, casadounido) 
 
-individual_NEA_test <- map_df(individual_NEA_test, function(columna) {
+# Muestra de entrenamiento
+# Transformar los factores en variables numéricas
+individual_NEA_train1 <- map_df(individual_NEA_train, function(columna) {
   columna %>% 
     as.factor() %>% 
     as.numeric %>% 
     { . - 1 }
 })
 
+# Tranformar datos en formato DMatrix
+individual_NEA_train1 <- individual_NEA_train1%>% 
+  select(-completo) %>% 
+  as.matrix() %>% 
+  xgb.DMatrix(data = ., label = individual_NEA_train$completo)
+individual_NEA_train1
+
+# Muestra de testeo
+# Transformar los factores en variables numéricas
+individual_NEA_test1 <- map_df(individual_NEA_test, function(columna) {
+  columna %>% 
+    as.factor() %>% 
+    as.numeric %>% 
+    { . - 1 }
+})
+# Tranformar datos en formato DMatrix
+variables_train <- names(individual_NEA_train)
+individual_NEA_test1 <- individual_NEA_test1%>% 
+  select(all_of(variables_train)) %>% 
+  select(-completo) %>% 
+  as.matrix() %>% 
+  xgb.DMatrix(data = ., label = individual_NEA_test$completo)
+individual_NEA_test1
+
+# Ajustamos el modelo
+modelo_xgboost <- xgboost(data = individual_NEA_train1, 
+                          objective = "binary:logistic",
+                          nrounds = 1000, max.depth = 2, eta = 0.3, nthread = 2)
+
+# Matriz de confusión
+individual_NEA_test$pclass_xgb <- predict(modelo_xgboost, individual_NEA_test1)
+individual_NEA_test$pclass_xgb <- ifelse(individual_NEA_test$pclass_xgb>0.5, 1, 0)
+
+cm_xgb <- confusionMatrix(table(individual_NEA_test$completo, individual_NEA_test$pclass_xgb), positive = "1")
+cm_xgb
+
+# Curva ROC
+pred.xgb <- ROCR::prediction(as.numeric(individual_NEA_test$pclass_xgb), individual_NEA_test$completo) #solo cambia el formato del objeto para que sea soportable por la función performance
+perf.xgb <- ROCR::performance (pred.xgb, "tpr", "fpr") #guarda los valores de TPR (sensibilidad) y FPR (1-especificidad)
+plot(perf.xgb, main = "Curva ROC", ylab = "Sensibilidad", xlab = "1-especificidad") # grafica la curva ROC
+abline(a=0, b=1) # agregamos la recta de referencia
+
+
+# Guardamos medidas de la clasificación
+medidas <- rbind(medidas,
+                 data.frame(Modelo="XGBoost",
+                            accuracy = round(cm_xgb$overall[["Accuracy"]],5),
+                            sensibilidad = round(cm_xgb$byClass[["Sensitivity"]], 5),
+                            especificidad = round(cm_xgb$byClass[["Specificity"]], 5),
+                            VPP = round(cm_xgb$byClass[["Pos Pred Value"]], 5),
+                            VPN = round(cm_xgb$byClass[["Neg Pred Value"]], 5),
+                            auc = round(ROCR::performance(pred.xgb, measure = "auc")@y.values[[1]], 5)))
+
+
+
+
 
 # Naive Bayes
 
 
 
+# Al momento de elegir el mejor modelo (al final)
+# Guardamos las probabilidades predichas
+individual_NEA$prob_completo <- predict(modelo_rf, individual_NEA, type="prob")[,2]
+hist(individual_GR$prob_completo)
+hist(individual_GR$prob4)
+names(individual_GR) <- c(names(individual_GR)[1:224], "prob1", "prob2", "prob3", "prob4")
 
 
 # Corrección del ponderador

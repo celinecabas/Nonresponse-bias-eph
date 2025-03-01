@@ -81,7 +81,7 @@ load("Resultados.RData")
 
 \chapter{Introducción}
 \label{Capitulo2}
-\lhead{Capítulo 2. \emph{Introducción}}
+\lhead{Capítulo 1. \emph{Introducción}}
 
 En el campo estadístico del muestreo, la no respuesta es una de las principales problemáticas a abordar debido a que si no se comporta de manera aleatoria puede introducir sesgos en las distribuciones de las variables que nos interesan medir y, por lo tanto, en las conclusiones que saquemos de testear hipótesis a partir de ellas.
 
@@ -273,7 +273,15 @@ Empleamos bootstrap en la estimación de los errores estándar de
 
 Bootstrap no requiere del cumplimiento de los supuestos del modelo para computar los errores estándar de las estimaciones, por lo cual es más probable de arrojar una estimación más precisa de los errores estándar de los coeficientes del modelo.
 
+## Stepwise y validación cruzada
 
+## Árboles de decisión
+
+## Random Forest
+
+
+
+## XGBoost
 
 
 # Resultados
