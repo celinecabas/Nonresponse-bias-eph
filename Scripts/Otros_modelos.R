@@ -68,3 +68,93 @@ lmtest::bptest(modelo_rcia)
 lmtest::bptest(modelo_ctes)
 lmtest::bptest(modelo_formosa)
 lmtest::bptest(modelo_posadas)
+
+
+
+
+# Notas de modelo generalizado de momentos
+# AJUSTE DEL PONDERADOR (PONDIH)
+# Por método generalizado de momentos
+library(gmm)
+
+moment_conditions <- function(theta, m1, P, m) {
+  # Aquí se definen las condiciones de momento ψ_j(θ)
+  # Suponiendo que theta es el parámetro que estamos estimando.
+  
+  # Por simplicidad, en este ejemplo, θ no se usa. Debes ajustarlo según tu modelo.
+  
+  psi_j = sum(m1 / P) - m
+  
+  
+  return(psi_j)
+}
+
+criterion <- function(theta, m1, P, m, W) {
+  psi <- moment_conditions(theta, m1, P, m)
+  criterion_value <- t(psi) %*% solve(W) %*% psi
+  return(as.numeric(criterion_value))
+}
+
+W <- diag(nrow(individual_GR))  # Matriz de ponderación inicial
+
+initial_theta <- 0  # Valor inicial para theta
+result <- optim(initial_theta,
+                criterion, 
+                m1 = individual_GR$PONDIH, 
+                P = individual_GR$prob4,
+                m = individual_GR$mj, 
+                W = W,
+                method = "BFGS")
+
+# Resultados
+result$par  # Valor estimado de theta
+
+# Definir la función de momento
+moment_function <- function(t0, x) {
+  
+  mij = x$PONDIH
+  P = x$prob4
+  
+  psi_j <- (mij/P) - t0
+  return(psi_j)
+  
+}
+
+# Crear una función de GMM
+gmm_model <- gmm(g = moment_function,
+                 t0 = c(t0=3),
+                 x = individual_GR)
+
+# Estimar el parámetro
+summary(gmm_model)
+
+
+# Función de momento para gmm
+moment_conditions <- function(t0, x, weights) {
+  alpha <- t0[1]
+  beta <- t0[2]
+  
+  # Momentos teóricos
+  theoretical_mean <- alpha * beta
+  theoretical_variance <- alpha * beta^2
+  
+  # Condiciones de momento
+  moment1 <- theoretical_mean - x
+  moment2 <- theoretical_variance - (x-theoretical_mean)^2
+  
+  return(c(moment1, moment2))
+  
+}
+
+
+
+gmm_ing <- gmm(g = moment_conditions,
+               t0 = c(alpha=0.1,beta=0.1),
+               x = rep(individual_GR$IPCF_d, individual_GR$PONDIH))
+
+hist(rep(individual_GR$IPCF_d,individual_GR$PONDIH), freq = F)
+points(individual_GR$IPCF_d,
+       dgamma(x = individual_GR$IPCF_d, 
+              shape = gmm_ing$coefficients[1], 
+              scale = gmm_ing$coefficients[2]))
+
