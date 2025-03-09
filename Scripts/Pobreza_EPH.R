@@ -497,7 +497,7 @@ summary(individual_NEA_train)
 
 # Muestra de entrenamiento
 individual_NEA_train <- individual_NEA_train %>% 
-  select(completo, AGLO_DESC, IPCF_d, CH06, IX_TOT, informal, NIVEL_ED, mujer, casadounido, ESTADO, 
+  select(completo, AGLO_DESC, area, IPCF_d, CH06, IX_TOT, informal, NIVEL_ED, mujer, casadounido, ESTADO, 
          CAT_INAC, CAT_OCUP, otros_ing_nolab, IV1, IV2, IV3, IV4, IV5, IV6, IV7, IV8, IV9,
          IV10, IV11, IV12_1, IV12_2, IV12_3, II1, II2, II3, II3_1, II4_1, II4_2, II4_3,
         II5, II5_1, II6, II6_1, II7, II8, II9, RDECOCUR, ADECOCUR) %>% 
@@ -867,7 +867,8 @@ hist(individual_NEA$mj)
 summary(individual_NEA$mj)
 
 # Ponderador corregido
-individual_NEA[, PONDIH_c:= round(ifelse(prob_completo>0, PONDIH/prob_completo, PONDIH))]
+individual_NEA[, media_prob:= mean(prob_completo,na.rm=T), by = .(periodo, area, AGLOMERADO)]
+individual_NEA[, PONDIH_c:= round(ifelse(prob_completo>0, PONDIH/(prob_completo/media_prob), PONDIH))]
 individual_NEA[, mj_c:=sum(PONDIH_c), by = .(periodo, area, AGLOMERADO)]
 individual_NEA[, PONDIH_c:= round(PONDIH_c*(mj/mj_c))]
 hist(individual_NEA$PONDIH)
@@ -886,10 +887,10 @@ individual_NEA %>%
   facet_wrap(.~periodo)
 
 
-summary(individual_GR$PONDIH)
-summary(individual_GR$PONDIH_c)
-sd(individual_GR$PONDIH)
-sd(individual_GR$PONDIH_c)
+summary(individual_NEA$PONDIH)
+summary(individual_NEA$PONDIH_c)
+sd(individual_NEA$PONDIH)
+sd(individual_NEA$PONDIH_c)
 
 # Controlamos los totales poblacionales
 control_poblacion <- cbind(
@@ -905,88 +906,116 @@ fre(individual_GR$nro_rep, weight = individual_GR$PONDIH_c)
 
 
 
-# Percentil del ingreso per cápita familiar por aglomerado (original, con PONDIH)
-library(Hmisc)
-tabla1 <- data.frame()
+## Distribuciones de ingreso ####------------------------------------------------
 
-for (j in unique(individual_NEA$AGLO_DESC)){
-  for (i in unique(individual_NEA$periodo)){
-    # Filtramos la base
-    base <- individual_NEA %>% filter(AGLO_DESC==j & periodo==i)
-    # Calculamos la densidad
-    kde_IPCF <- density(x = base$IPCF, weights = base$PONDIH, 
-                        bw = 300, kernel = "gaussian")
-    # Guardamos los datos
-    anexo <- data.frame(AGLO_DESC=j, periodo=i, IPCF=kde_IPCF$x, freq=kde_IPCF$y)
-    # Calculamos la densidad acumulada
-    anexo$cdf <- cumsum(anexo$freq) / sum(anexo$freq)
-    # Formateamos el periodo
-    anexo$periodo <- as.yearqtr(anexo$periodo)
-    # Anexamos a la tabla 1
-    tabla1 <- rbind(tabla1, anexo)
-    # Limpiamos memoria
-    rm(anexo, base)
-  }
-}
+# 1) Percentil del ingreso per cápita familiar por aglomerado (original, con PONDIH)
 
-tabla1 <- tabla1 %>% filter(IPCF>=0)
+# Combinaciones de aglomerados y períodos
+aglo_periodos <- individual_NEA %>% select(periodo, AGLO_DESC) %>% distinct()
 
-tabla1 %>% 
-  filter(periodo=="2018 Q3") %>% 
-  ggplot(aes(IPCF, cdf)) +
-  geom_line(color = "red") +
-  labs(title = "ECDF Ponderada y Suavizada", x = "X", y = "CDF") +
-  theme_minimal()
+# Tabla para guardar resultados
+tabla1 <- data.table()
 
-# Percentil del ingreso per cápita familiar por aglomerado (modificado, PONDIH_c)
-tabla2 <- data.frame()
-for (i in unique(individual_GR$periodo)){
-  kde_IPCF <- density(x = individual_GR$IPCF_d[individual_GR$periodo==i], 
-                      weights = individual_GR$PONDIH_c[individual_GR$periodo==i], 
-                      bw = 300, kernel = "gaussian")
-  anexo <- data.frame(periodo=i, IPCF_c=kde_IPCF$x, freq_c=kde_IPCF$y)
-  anexo$cdf_c <- cumsum(anexo$freq) / sum(anexo$freq)
+# Iteramos por aglomerado y período 
+for (i in 1:nrow(aglo_periodos)){
+  periodo_selec = aglo_periodos$periodo[i]
+  aglo_selec = aglo_periodos$AGLO_DESC[i]
+  # Filtramos la base
+  base <- individual_NEA %>% 
+    filter(AGLO_DESC==aglo_selec & 
+             periodo==periodo_selec)
+  # Calculamos la densidad
+  kde_IPCF <- density(x = base$IPCF, weights = base$PONDIH, 
+                      bw = 500, kernel = "gaussian")
+  # Guardamos los datos
+  anexo <- data.table(AGLO_DESC=rep(aglo_selec, length(kde_IPCF$x)), 
+                      periodo=rep(periodo_selec, length(kde_IPCF$x)), 
+                      IPCF=kde_IPCF$x, freq=kde_IPCF$y)
+  # Calculamos la densidad acumulada
+  anexo$cdf <- cumsum(anexo$freq) / sum(anexo$freq)
+  # Formateamos el periodo
   anexo$periodo <- as.yearqtr(anexo$periodo)
-  tabla2 <- rbind(tabla2, anexo)
-  rm(anexo)
+  # Anexamos a la tabla 1
+  tabla1 <- rbind(tabla1, anexo)
+  # Limpiamos memoria
+  rm(anexo, base)
 }
 
-# Unimos ambas tablas
-tabla <- cbind(tabla1, tabla2[,-1])
-rm(tabla1, tabla2)
 
-# Distribuciones acumuladas de IPCF
-tabla %>% 
-  filter(year(periodo)==2018) %>%
-  ggplot() + 
-  geom_line(aes(IPCF, cdf), linetype = "dashed") + 
-  geom_line(aes(IPCF_c, cdf_c)) + 
-  facet_wrap(.~periodo, scales = "free")
+# 2) Percentil del ingreso per cápita familiar por aglomerado (modificado, PONDIH_c)
 
+# Tabla para guardar resultados
+tabla2 <- data.table()
 
-# Gráficos con las diferencias entre distribuciones
-tabla_prev <- as.data.table(tabla[,c(1,2,4)])
-tabla_post <- as.data.table(tabla[,c(1,5,7)])
+# Iteramos por aglomerado y período 
+for (i in 1:nrow(aglo_periodos)){
+  periodo_selec = aglo_periodos$periodo[i]
+  aglo_selec = aglo_periodos$AGLO_DESC[i]
+  # Filtramos la base
+  base <- individual_NEA %>% 
+    filter(AGLO_DESC==aglo_selec & 
+             periodo==periodo_selec)
+  # Calculamos la densidad
+  kde_IPCF <- density(x = base$IPCF, weights = base$PONDIH_c, 
+                      bw = 500, kernel = "gaussian")
+  # Guardamos los datos
+  anexo <- data.table(AGLO_DESC=rep(aglo_selec, length(kde_IPCF$x)), 
+                      periodo=rep(periodo_selec, length(kde_IPCF$x)), 
+                      IPCF_c=kde_IPCF$x, freq_c=kde_IPCF$y)
+  # Calculamos la densidad acumulada
+  anexo$cdf_c <- cumsum(anexo$freq) / sum(anexo$freq)
+  # Formateamos el periodo
+  anexo$periodo <- as.yearqtr(anexo$periodo)
+  # Anexamos a la tabla 1
+  tabla2 <- rbind(tabla2, anexo)
+  # Limpiamos memoria
+  rm(anexo, base)
+}
+
 
 # Cortamos las frecuencias a 2 dígitos
-tabla_prev$freq_acum <- round(tabla_prev$cdf, 2)
-tabla_post$freq_acum <- round(tabla_post$cdf_c, 2)
+tabla1$freq_acum <- round(tabla1$cdf, 2)
+tabla2$freq_acum <- round(tabla2$cdf_c, 2)
 
 # Filtramos por el máximo salario por frecuencia
-tabla_prev <- tabla_prev[, IPCF_prev:= max(IPCF), by = .(freq_acum)]
-tabla_prev <- distinct(tabla_prev[,c(1,4,5)])
-tabla_post <- tabla_post[, IPCF_post:= max(IPCF_c), by = .(freq_acum)]
-tabla_post <- distinct(tabla_post[,c(1,4,5)])
+tabla1[, IPCF_prev:= max(IPCF), by = .(AGLO_DESC, periodo, freq_acum)]
+tabla_prev <- distinct(tabla1[,c(1,2,6,7)])
+tabla2[, IPCF_post:= max(IPCF_c), by = .(AGLO_DESC, periodo, freq_acum)]
+tabla_post <- distinct(tabla2[,c(1,2,6,7)])
 
 # Unimos las dos tablas
-tabla_diferencia <- merge.data.table(tabla_prev, tabla_post, by = c("periodo","freq_acum"))
+tabla_diferencia <- merge.data.table(tabla_prev, tabla_post, by = c("AGLO_DESC","periodo","freq_acum"))
 tabla_diferencia[, diferencia:= (IPCF_post-IPCF_prev)/IPCF_prev]
 
-# Gráfico de diferencias
-tabla_diferencia %>% 
+# Gráfico de diferencias (Gran Resistencia)
+tabla_diferencia %>%
+  filter(AGLO_DESC=="Gran Resistencia") %>% 
+  filter(periodo != "2019 Q4" & freq_acum!=0 & freq_acum!=1) %>% 
   ggplot() +
   geom_line(aes(freq_acum, diferencia), stat = "identity") + 
-  facet_wrap(.~periodo, scales="free")
+  # geom_smooth(aes(freq_acum, diferencia)) +
+  facet_wrap(.~periodo) + 
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  scale_y_continuous(labels = scales::percent) +
+  theme_light() + 
+  ylab("") + xlab("")
+
+# Gráfico de diferencias (Corrientes)
+tabla_diferencia %>%
+  filter(AGLO_DESC=="Corrientes") %>% 
+  filter(periodo != "2017 Q3" & IPCF_prev>=0 & IPCF_post>=0 ) %>% 
+  ggplot() +
+  geom_line(aes(freq_acum, diferencia), stat = "identity") + 
+  # geom_smooth(aes(freq_acum, diferencia)) +
+  facet_wrap(.~periodo) + 
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  scale_y_continuous(labels = scales::percent) +
+  theme_light() + 
+  ylab("") + xlab("")
+
+
+
+
 
 # Distribuciones acumuladas de IPCF
 tabla_diferencia %>% 
@@ -996,7 +1025,7 @@ tabla_diferencia %>%
   geom_line(aes(IPCF_post,freq_acum)) + 
   facet_wrap(.~periodo, scales = "free")
 
-
+# Pobreza hogares -----------------------------------------------------
 # Pobreza con el cambio de ponderador
 resultados_post <- 
   individual_NEA[CH03==1,
@@ -1056,6 +1085,79 @@ resultados_NEA %>%
   geom_bar(stat = "identity") + 
   geom_smooth(se = FALSE) +
   scale_y_continuous(labels = scales::percent) +
+  facet_wrap(.~AGLO_DESC)
+
+# Test de diferencia de medias
+resultados_NEA <- resultados_NEA %>% 
+  mutate(diferencia_pobreza = pobreza.y - pobreza.x,
+         diferencia_indigencia = indigencia.y - indigencia.x,
+         categoria = ifelse(AGLO_DESC=="Gran Resistencia","Gran Resistencia","Otros"))
+
+
+t.test(diferencia_pobreza ~ categoria, data=resultados_NEA)
+t.test(diferencia_indigencia ~ categoria, data=resultados_NEA)
+
+anova_model <- aov(diferencia_indigencia ~ AGLO_DESC, data = resultados_NEA)
+tukey_result <- TukeyHSD(anova_model)
+print(tukey_result)
+
+
+# Pobreza individuos # --------------------------------------------
+individual_NEA_total <- fread("Bases/individual_NEA.txt")
+individual_NEA_total[, periodo:= as.yearqtr(paste0(ANO4,"-",TRIMESTRE))]
+
+# Cruzamos para asignar las probabilidades de respuesta
+individual_NEA_total <- merge.data.table(individual_NEA_total, 
+                                         individual_NEA[,c(3:6,222,252)],
+                                         by = c("CODUSU","NRO_HOGAR","AGLOMERADO","periodo"))
+
+
+# Agregamos el total de PONDIH por 'área'
+individual_NEA_total[, mj:= sum(PONDIH,na.rm=T), by = .(periodo, area, AGLOMERADO)]
+hist(individual_NEA_total$mj)
+summary(individual_NEA_total$mj)
+
+# Ponderador corregido
+individual_NEA_total[, media_prob:= mean(prob_completo,na.rm=T), by = .(periodo, area, AGLOMERADO)]
+individual_NEA_total[, PONDIH_c:= round(ifelse(prob_completo>0, PONDIH/(prob_completo/media_prob), PONDIH))]
+individual_NEA_total[, mj_c:=sum(PONDIH_c), by = .(periodo, area, AGLOMERADO)]
+individual_NEA_total[, PONDIH_c:= round(PONDIH_c*(mj/mj_c))]
+hist(individual_NEA_total$PONDIH)
+hist(individual_NEA_total$PONDIH_c, add=T, col=2)
+
+
+# Pobreza con el cambio de ponderador
+resultados_post <- 
+  individual_NEA[,
+                 .(pobres=sum(hogar_pobre*PONDIH_c,na.rm=T),
+                   indigentes=sum(hogar_indigente*PONDIH_c,na.rm=T),
+                   total_personas=sum(PONDIH_c,na.rm=T)),
+                 by = .(AGLO_DESC, periodo)]
+resultados_post[, pobreza:= pobres/total_personas]
+resultados_post[, indigencia:= indigentes/total_personas]
+
+# Pobreza (dato oficial)
+resultados_prev <- 
+  individual_NEA[,
+                 .(pobres=sum(hogar_pobre*PONDIH,na.rm=T),
+                   indigentes=sum(hogar_indigente*PONDIH,na.rm=T),
+                   total_personas=sum(PONDIH,na.rm=T)),
+                 by = .(AGLO_DESC, periodo)]
+resultados_prev[, pobreza:= pobres/total_personas]
+resultados_prev[, indigencia:= indigentes/total_personas]
+
+# Unimos ambas tablas para comparar resultados
+resultados_NEA <- resultados_prev %>% 
+  dplyr::select(AGLO_DESC, periodo, pobreza, indigencia) %>% 
+  arrange(periodo) %>% 
+  merge.data.frame(resultados_post[,c(1,2,6,7)], by = c("AGLO_DESC","periodo"))
+
+# Gráfico de resultados de pobreza
+resultados_NEA %>% 
+  pivot_longer(cols = c(pobreza.x, pobreza.y), names_to = "tipo_pobreza", values_to = "valor") %>% 
+  ggplot() + 
+  geom_line(aes(x = periodo, y = valor, color = tipo_pobreza)) + 
+  geom_smooth(aes(x = periodo, y = valor, color = tipo_pobreza)) +
   facet_wrap(.~AGLO_DESC)
 
 
