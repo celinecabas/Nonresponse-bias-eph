@@ -16,10 +16,20 @@ library(zoo)
 # Hogar
 hogar_NEA <- fread("Bases/hogar_NEA.txt")
 hogar_NEA[, periodo:= as.yearqtr(paste0(ANO4,"-",TRIMESTRE))]
+
+# Características de la vivienda
+hogar_NEA[, (names(.SD)) := lapply(.SD, as.factor), 
+          .SDcols = c("IV1", "IV3", "IV4", "IV5", "IV6", "IV7", "IV8", "IV9",
+                      "IV10", "IV11", "IV12_1", "IV12_2", "IV12_3")]
+
+# Características habitacionales del hogar
+hogar_NEA[, (names(.SD)) := lapply(.SD, as.factor), 
+          .SDcols = c("II3", "II4_1", "II4_2", "II4_3",
+                      "II5", "II6", "II7", "II8", "II9")]
+
 # Individual
 individual_NEA <- fread("Bases/individual_NEA.txt")
 individual_NEA[, periodo:= as.yearqtr(paste0(ANO4,"-",TRIMESTRE))]
-individual_NEA <- individual_NEA[CH03==1,] # Filtramos por jefe de hogar
 
 setnames(hogar_NEA, "CBA", "CBA_hogar")
 setnames(hogar_NEA, "CBT", "CBT_hogar")
@@ -29,6 +39,7 @@ individual_NEA <- merge.data.table(individual_NEA, hogar_NEA[,c(2:6,11,25,66,67,
 setorder(individual_NEA, CODUSU, NRO_HOGAR, ANO4, TRIMESTRE)
 
 #individual_NEA[, patron:= ifelse(CAT_OCUP==1, 1, 0)]
+
 # Index
 individual_NEA[, index:= paste0(CODUSU, NRO_HOGAR)]
 # Informal
@@ -48,6 +59,17 @@ individual_NEA[, horas_trab:= as.numeric(PP3E_TOT) + PP3F_TOT]
 # Ingreso per cápita familiar
 individual_NEA[, IPCF:= as.numeric(str_replace(IPCF, ",","."))]
 
+# Sector de trabajo (ocupados)
+individual_NEA[, PP04A:= ifelse(is.na(PP04A)==T, 0, PP04A)]
+individual_NEA[, PP04A:= factor(PP04A, 
+                                levels=c(0,1,2,3,9),
+                                labels = c("No ocupado","Estatal","Privada","De otro tipo","Ns/Nr"))]
+# Empleo doméstico (ocupados)
+individual_NEA[, PP04B1:= ifelse(is.na(PP04B1)==T, 0, PP04B1)]
+individual_NEA[, PP04B1:= factor(PP04B1,
+                                 levels=c(0,1,2),
+                                 labels=c("No ocupado","Presta servicio","No presta"))]
+
 
 # Deflactamos IPCF
 ipc <- read_excel("Bases/IPC_NEA_2004.xlsx", sheet = "Trimestral") %>% na.omit() %>% as.data.table()
@@ -58,16 +80,41 @@ individual_NEA <- merge.data.table(individual_NEA, ipc, by = "periodo")
 # Ingreso per cápita familiar deflactado
 individual_NEA[, IPCF_d:= IPCF/ipc_b24*100]
 
+# Logaritmo de IPCF
+individual_NEA[, logIPCF_d:=log(IPCF_d)]
+
+# Cantidad de varones
+individual_NEA[, cantidad_varones:= n_distinct(COMPONENTE[CH04==1]),  by = .(periodo,CODUSU,NRO_HOGAR)]
+
+# Cantidad de mujeres
+individual_NEA[, cantidad_mujeres:= n_distinct(COMPONENTE[CH04==2]), by = .(periodo,CODUSU,NRO_HOGAR)]
+
+# Cantidad de ocupados
+individual_NEA[, cantidad_ocupados:= n_distinct(COMPONENTE[ESTADO==1]), by = .(periodo,CODUSU,NRO_HOGAR)]
+
+# Cantidad de desocupados
+individual_NEA[, cantidad_desocupados:= n_distinct(COMPONENTE[ESTADO==2]), by = .(periodo,CODUSU,NRO_HOGAR)]
+
+# Cantidad de informales
+individual_NEA[, cantidad_informales:= n_distinct(COMPONENTE[informal==1]), by = .(periodo,CODUSU,NRO_HOGAR)]
+
+# Edad promedio del hogar
+individual_NEA[, edad_promedio_hogar:= mean(CH06,na.rm=T), by = .(periodo,CODUSU,NRO_HOGAR)]
+
 # Calificación del puesto
 individual_NEA <- organize_cno(individual_NEA)
-individual_NEA[, CALIFICACION:= ifelse(is.na(CALIFICACION)==T | 
-                                         CALIFICACION %in% c("falta informacion","Ns.Nc","otro"), "N/s", CALIFICACION)]
+individual_NEA[, CALIFICACION:= ifelse(CALIFICACION %in% c("falta informacion","Ns.Nc","otro"), "N/s", CALIFICACION)]
+individual_NEA[, CALIFICACION:= ifelse(is.na(CALIFICACION)==T, "No ocupado",CALIFICACION)]
+individual_NEA[, CALIFICACION:= as.factor(CALIFICACION)]
+
+# Jerarquía del puesto de trabajo
+individual_NEA[, JERARQUIA:= ifelse(is.na(JERARQUIA)==T, "No ocupado", JERARQUIA)]
+individual_NEA[, JERARQUIA:= as.factor(JERARQUIA)]
 
 # Sector de actividad
 individual_NEA <- organize_caes(individual_NEA)
-
-# Logaritmo de IPCF
-individual_NEA[, logIPCF_d:=log(IPCF_d)]
+individual_NEA[, caes_seccion_cod:= ifelse(ESTADO==1 & is.na(caes_seccion_cod)==T,"Ns/Nr",caes_seccion_cod)]
+individual_NEA[, caes_seccion_cod:= ifelse(is.na(caes_seccion_cod)==T, "No ocupado",caes_seccion_cod)]
 
 # Dummie de mujer
 individual_NEA[, mujer:= ifelse(CH04==2, 1, 0)]
@@ -75,9 +122,13 @@ individual_NEA[, mujer:= ifelse(CH04==2, 1, 0)]
 # Otros ingresos no laborales
 individual_NEA[, otros_ing_nolab:= T_VI - V5_M - V8_M]
 
-# Filtramos por jefes de hogar
-individual_NEA <- individual_NEA[CH03==1]
+# Edad al cuadrado
+individual_NEA[, CH06_2:= CH06^2]
 
+# Filtramos por jefes de hogar
+individual_NEA <- individual_NEA[CH03==1,]
+
+# Formateamos "CODUSU-NROHOGAR" y año como factor
 individual_NEA[, index:= as.factor(index)]
 individual_NEA[, anio:= as.factor(ANO4)]
 
@@ -108,7 +159,6 @@ prop_por_periodo <- individual_NEA %>%
   mutate(prop=n/total) %>% 
   select(periodo, nro_rep, prop) %>% 
   pivot_wider(names_from = "nro_rep", values_from = "prop")
-View(prop_por_periodo)
 
 # Quitamos un año al comienzo y al final + período de pandemia
 # 2016 Q2, 2016 Q3, 2016Q4, 2017 Q1, 2020 Q2, 2023 Q3, 2023 Q4, 2024 Q1, 2024 Q2
@@ -120,10 +170,7 @@ individual_NEA <- subset(individual_NEA,
                            IPCF_d>0)
 
 
-# Modelos #####
-
-
-
+# Análisis de estructuras de respuesta # -------------------------------------
 
 # Tablas descriptivas
 tabla1 <- prop.table(table(individual_NEA$AGLO_DESC, individual_NEA$nro_rep), margin=2)
@@ -458,6 +505,7 @@ individual_NEA <- merge.data.table(individual_NEA, hogar_NEA[,c(3:6,13,14,16:19,
 # Base para jupyternotebook
 fwrite(individual_NEA, "Bases/individual_NEA_prediccion.txt", sep=";",encoding = "UTF-8")
 
+# Seleccionamos las variables que vamos a utilizar en los modelos
 
 # Muestra en train (70%) y test (30%) por aglomerado y período
 individual_NEA_train <- data.table()
@@ -480,36 +528,26 @@ for (i in unique(individual_NEA$AGLO_DESC)){
   }
 }
 
-# Analizamos que variables eliminar 
-lapply(individual_NEA_train, FUN=function(x){sum(is.na(x))})
-summary(individual_NEA_train)
-
-
-# Eliminamos variables de identificación del hogar que no hacen al análisis en los modelos
-# individual_NEA_train <- individual_NEA_train %>% 
-#   select(- index, - nro_rep, - area, - n_entrevista, - AGLOMERADO, - ANO4, - periodo, - caes_version,
-#          - TRIMESTRE, - CODUSU, - NRO_HOGAR, - COMPONENTE, - H15, - REGION, - REGION_DESC, -V178,
-#          - PONDERA, - PONDIH, -PONDIIO, -PONDII, - REGION_COD, - ipc_b24, - CH03, -GDECINDR, -CH05,
-#          - AGLO_DESC, -ice, -hogar_pobre, -hogar_indigente, -contains("PP02"), -contains("PP03"),
-#          -contains("PP04"), -contains("PP05"), -contains("PP06"), - contains("PP07"), -contains("PP08"),
-#          -contains("PP09"), -contains("PP10"), -contains("PP11"), CH05, -GDECCFR, -GDECOCUR, -DECOCUR, -GDECIFR,
-#          -IDECOCUR, -PDECOCUR, -PDECINDR, -PDECIFR, -PDECCFR, -ADECOCUR, -ADECINDR, -ADECIFR, -ADECCFR, -adequi, -anio)
-
 # Muestra de entrenamiento
 individual_NEA_train <- individual_NEA_train %>% 
-  select(completo, AGLO_DESC, area, IPCF_d, CH06, IX_TOT, informal, NIVEL_ED, mujer, casadounido, ESTADO, 
-         CAT_INAC, CAT_OCUP, otros_ing_nolab, IV1, IV2, IV3, IV4, IV5, IV6, IV7, IV8, IV9,
-         IV10, IV11, IV12_1, IV12_2, IV12_3, II1, II2, II3, II3_1, II4_1, II4_2, II4_3,
-        II5, II5_1, II6, II6_1, II7, II8, II9, RDECOCUR, ADECOCUR) %>% 
-  mutate(CH06_2 = CH06^2)
+  select(completo, # Variable de respuesta
+         # Variables de identificación del hogar
+         AGLO_DESC,
+         # Ingreso del hogar
+         IPCF_d, otros_ing_nolab, RDECOCUR, ADECOCUR,
+         # Datos del jefe de hogar
+         CH06, CH06_2, IX_TOT, informal, NIVEL_ED, mujer, 
+         casadounido, ESTADO, CAT_INAC, CAT_OCUP,
+         # Características de la vivienda
+         IV1, IV2, IV3, IV4, IV5, IV6, IV7, IV8, IV9, IV10, IV11, IV12_1, IV12_2, IV12_3, 
+         # Características habitacionales del hogar
+         II1, II2, II3, II3_1, II4_1, II4_2, II4_3, II5, II6, II6_1, II7, II8, II9, 
+         # Ocupación del jefe de hogar
+         CALIFICACION, JERARQUIA, caes_seccion_cod, PP04B1,
+         # Características de composición del hogar
+         cantidad_varones, cantidad_mujeres, cantidad_ocupados, 
+         cantidad_desocupados, cantidad_informales, edad_promedio_hogar)
 
-# Muestra de testeo
-individual_NEA_test <- individual_NEA_test %>% 
-  mutate(CH06_2 = CH06^2)
-
-# Muestra completa
-individual_NEA <- individual_NEA %>% 
-  mutate(CH06_2 = CH06^2)
 
 # 1) Modelo logístico # --------------------
 
@@ -518,8 +556,6 @@ modelofull <- glm(completo~., data=individual_NEA_train)
 modelonull <- glm(completo~1, data=individual_NEA_train)
 
 # Cantidad posible de modelos (841)
-29^2
-
 steplogit <- step(modelonull,
                   scope = list(lower=modelonull, upper=modelofull),
                   direction = "forward")
@@ -565,7 +601,7 @@ cv_error$delta
 
 # Leave-One-Out (manual con los hatvalues, en caso de regresión logística)
 muhat <- fitted(modelo_logit)
-modelo.diag <- glm.diag(modelo_logit)
+modelo.diag <- boot::glm.diag(modelo_logit)
 cv.error <- mean((modelo_logit$y - muhat)^2/(1-modelo.diag$h)^2)
 cv.error
 medidas$cv.error <- cv.error
@@ -629,7 +665,7 @@ set.seed(123)
 modelo_rf <- randomForest(completo_f ~ . - completo, 
                           data = individual_NEA_train, 
                           importance = T, 
-                          na.action=na.omit)
+                          na.action = na.omit)
 
 # Matriz de confusión
 individual_NEA_test$pclass_rf <- predict(modelo_rf, newdata=individual_NEA_test)
@@ -827,6 +863,9 @@ load("Informe y resultados/Modelos_clasificacion.RData") # Provisoriamente
 individual_NEA$prob_completo <- predict(modelo_rf, newdata=individual_NEA, type="prob")[,2]
 hist(individual_NEA$prob_completo)
 
+ggplot(individual_NEA, aes(nro_rep, prob_completo)) + 
+  geom_boxplot() + 
+  facet_wrap(.~AGLO_DESC)
 
 # Corrección del ponderador
 
@@ -957,7 +996,7 @@ for (i in 1:nrow(aglo_periodos)){
              periodo==periodo_selec)
   # Calculamos la densidad
   kde_IPCF <- density(x = base$IPCF, weights = base$PONDIH_c, 
-                      bw = 500, kernel = "gaussian")
+                      bw = 700, kernel = "gaussian")
   # Guardamos los datos
   anexo <- data.table(AGLO_DESC=rep(aglo_selec, length(kde_IPCF$x)), 
                       periodo=rep(periodo_selec, length(kde_IPCF$x)), 
@@ -990,7 +1029,7 @@ tabla_diferencia[, diferencia:= (IPCF_post-IPCF_prev)/IPCF_prev]
 # Gráfico de diferencias (Gran Resistencia)
 tabla_diferencia %>%
   filter(AGLO_DESC=="Gran Resistencia") %>% 
-  filter(periodo != "2019 Q4" & freq_acum!=0 & freq_acum!=1) %>% 
+  filter(freq_acum!=0 & freq_acum!=1) %>% 
   ggplot() +
   geom_line(aes(freq_acum, diferencia), stat = "identity") + 
   # geom_smooth(aes(freq_acum, diferencia)) +
@@ -1003,7 +1042,7 @@ tabla_diferencia %>%
 # Gráfico de diferencias (Corrientes)
 tabla_diferencia %>%
   filter(AGLO_DESC=="Corrientes") %>% 
-  filter(periodo != "2017 Q3" & IPCF_prev>=0 & IPCF_post>=0 ) %>% 
+  filter(periodo != "2019 Q4" & freq_acum>=0.05 & freq_acum<=0.95) %>% 
   ggplot() +
   geom_line(aes(freq_acum, diferencia), stat = "identity") + 
   # geom_smooth(aes(freq_acum, diferencia)) +
@@ -1013,7 +1052,18 @@ tabla_diferencia %>%
   theme_light() + 
   ylab("") + xlab("")
 
-
+# Gráfico de diferencias (Posadas)
+tabla_diferencia %>%
+  filter(freq_acum>=0.05 & freq_acum<=0.95) %>% 
+  ggplot() +
+  geom_line(aes(freq_acum, diferencia, color=AGLO_DESC), stat = "identity") + 
+  geom_smooth(aes(freq_acum, diferencia, color=AGLO_DESC)) +
+  # geom_smooth(aes(freq_acum, diferencia)) +
+  facet_wrap(.~periodo) + 
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  scale_y_continuous(labels = scales::percent) +
+  theme_light() + 
+  ylab("") + xlab("")
 
 
 
@@ -1058,7 +1108,11 @@ resultados_NEA %>%
   ggplot() + 
   geom_line(aes(x = periodo, y = valor, color = tipo_pobreza)) + 
   geom_smooth(aes(x = periodo, y = valor, color = tipo_pobreza)) +
-  facet_wrap(.~AGLO_DESC)
+  scale_y_continuous(labels = scales::percent) + 
+  facet_wrap(.~AGLO_DESC) + 
+  theme_light() + 
+  theme(legend.position = "bottom") + 
+  ylab("") + xlab("")
 
 # Gráfico de resultados de indigencia
 resultados_NEA %>% 
@@ -1066,7 +1120,11 @@ resultados_NEA %>%
   ggplot() + 
   geom_line(aes(x = periodo, y = valor, color = tipo_indigencia)) + 
   geom_smooth(aes(x = periodo, y = valor, color = tipo_indigencia)) +
-  facet_wrap(.~AGLO_DESC)
+  scale_y_continuous(labels = scales::percent) + 
+  facet_wrap(.~AGLO_DESC) +
+  theme_light() + 
+  theme(legend.position = "bottom") + 
+  ylab("") + xlab("")
 
 
 # Gráfico con diferencias en resultados de pobreza
@@ -1090,16 +1148,54 @@ resultados_NEA %>%
 # Test de diferencia de medias
 resultados_NEA <- resultados_NEA %>% 
   mutate(diferencia_pobreza = pobreza.y - pobreza.x,
-         diferencia_indigencia = indigencia.y - indigencia.x,
-         categoria = ifelse(AGLO_DESC=="Gran Resistencia","Gran Resistencia","Otros"))
+         diferencia_indigencia = indigencia.y - indigencia.x)
 
+# Para pobreza
+anova_model <- aov(diferencia_pobreza ~ AGLO_DESC, data = resultados_NEA)
+tukey_result <- TukeyHSD(anova_model)
+print(tukey_result)
 
-t.test(diferencia_pobreza ~ categoria, data=resultados_NEA)
-t.test(diferencia_indigencia ~ categoria, data=resultados_NEA)
-
+# Para indigencia
 anova_model <- aov(diferencia_indigencia ~ AGLO_DESC, data = resultados_NEA)
 tukey_result <- TukeyHSD(anova_model)
 print(tukey_result)
+
+# Pobreza semestral
+resultados_NEA %>% 
+  mutate(anio=year(periodo),
+         semestre=ifelse(quarter(periodo) %in% c(1,2), 1, 2)) %>% 
+  mutate(periodo=as.numeric(paste0(anio,semestre))) %>% 
+  group_by(AGLO_DESC, periodo) %>% 
+  summarise(pobreza.x=mean(pobreza.x), pobreza.y=mean(pobreza.y),
+            indigencia.x=mean(indigencia.x), indigencia.y=mean(indigencia.y)) %>% 
+  pivot_longer(cols = c(pobreza.x, pobreza.y), names_to = "tipo_pobreza", values_to = "valor") %>% 
+  ggplot() + 
+  geom_line(aes(x = periodo, y = valor, color = tipo_pobreza)) + 
+  geom_smooth(aes(x = periodo, y = valor, color = tipo_pobreza)) +
+  scale_y_continuous(labels = scales::percent) + 
+  facet_wrap(.~AGLO_DESC) + 
+  theme_light() + 
+  theme(legend.position = "bottom") + 
+  ylab("") + xlab("")
+
+# Indigencia semestral
+resultados_NEA %>% 
+  mutate(anio=year(periodo),
+         semestre=ifelse(quarter(periodo) %in% c(1,2), 1, 2)) %>% 
+  mutate(periodo=as.numeric(paste0(anio,semestre))) %>% 
+  group_by(AGLO_DESC, periodo) %>% 
+  summarise(pobreza.x=mean(pobreza.x), pobreza.y=mean(pobreza.y),
+            indigencia.x=mean(indigencia.x), indigencia.y=mean(indigencia.y)) %>% 
+  pivot_longer(cols = c(indigencia.x, indigencia.y), names_to = "tipo_indigencia", values_to = "valor") %>% 
+  ggplot() + 
+  geom_line(aes(x = periodo, y = valor, color = tipo_indigencia)) + 
+  geom_smooth(aes(x = periodo, y = valor, color = tipo_indigencia)) +
+  scale_y_continuous(labels = scales::percent) + 
+  facet_wrap(.~AGLO_DESC) +
+  theme_light() + 
+  theme(legend.position = "bottom") + 
+  ylab("") + xlab("")
+
 
 
 # Pobreza individuos # --------------------------------------------
