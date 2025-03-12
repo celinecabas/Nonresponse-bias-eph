@@ -128,6 +128,18 @@ individual_NEA[, CH06_2:= CH06^2]
 # Filtramos por jefes de hogar
 individual_NEA <- individual_NEA[CH03==1,]
 
+# Calculamos el identificador por 'área'
+individual_NEA[, area:= substr(CODUSU, 1, 8)]
+
+# # Medidas resumen por área
+# # Proporción de ocupados
+# individual_NEA[, id_persona:= paste0(CODUSU,NRO_HOGAR,COMPONENTE)]
+# individual_NEA[, prop_ocupados_area:= n_distinct(id_persona[ESTADO==1])/n_distinct(id_persona), by = .(area)]
+# # Proporción de desocupados
+# individual_NEA[, prop_desocup_area:= n_distinct(id_persona[ESTADO==2])/n_distinct(id_persona), by = .(area)]
+# # Proporción de informales
+# individual_NEA[, prop_informal_area:= n_distinct(id_persona[informal==1])/n_distinct(id_persona), by = .(area)]
+
 # Formateamos "CODUSU-NROHOGAR" y año como factor
 individual_NEA[, index:= as.factor(index)]
 individual_NEA[, anio:= as.factor(ANO4)]
@@ -144,9 +156,6 @@ setorder(individual_NEA, "CODUSU", "NRO_HOGAR","periodo")
 individual_NEA[, n:=1]
 individual_NEA[, n_entrevista:= cumsum(n), by = .(CODUSU, NRO_HOGAR)]
 individual_NEA$n=NULL
-
-# Calculamos el identificador por 'área'
-individual_NEA[, area:= substr(CODUSU, 1, 8)]
 
 
 # Analizamos los períodos a filtrar
@@ -546,7 +555,9 @@ individual_NEA_train <- individual_NEA_train %>%
          CALIFICACION, JERARQUIA, caes_seccion_cod, PP04B1,
          # Características de composición del hogar
          cantidad_varones, cantidad_mujeres, cantidad_ocupados, 
-         cantidad_desocupados, cantidad_informales, edad_promedio_hogar)
+         cantidad_desocupados, cantidad_informales, edad_promedio_hogar,
+         # Medidas por área
+         prop_ocupados_area, prop_desocup_area, prop_informal_area)
 
 
 # 1) Modelo logístico # --------------------
@@ -782,21 +793,22 @@ medidas <- rbind(medidas,
 library(glmnet)
 
 # Definimos variables con conjunto de entrenamiento
-x = model.matrix(completo ~ . -completo_f, data = individual_NEA_train)[,-1]
+x <- individual_NEA_train[,-"completo_f"]
+x = model.matrix(completo ~ ., data = x)[,-1]
 y = individual_NEA_train$completo
 
 # Filtramos la base de testeo y generamos los objetos para predicción
 regresores = colnames(individual_NEA_train)
-x_test = individual_NEA_test %>% select(all_of(regresores))
-x_test = model.matrix(completo ~ . -completo_f, data = x_test)[,-1]
+x_test = individual_NEA_test %>% select(all_of(regresores),-completo_f)
+x_test = model.matrix(completo ~ ., data = x_test)[,-1]
 y_test = individual_NEA_test$completo
 
 # Ridge regression
-grid <- 10^seq(3,-2,length=100)
-ridge.mod <- glmnet(x, y, family = "binomial", alpha = 0, alpha = grid)
+grid <- 10^seq(3,-1,length=100)
+ridge.mod <- glmnet(x, y, family = "binomial", alpha = 0)
 # Nos da una matriz 44x100 con 44 filas por cada variable y 100 columnas por cada lambda
 dim(coef(ridge.mod))
-plot(fit, label=TRUE)
+plot(ridge.mod, xvar="lambda", label=TRUE)
 
 
 # Calculamos el ECM
@@ -821,8 +833,8 @@ ggplot(resultados) +
   
   
 
-fit$lambda
-fit$dev.ratio
+ridge.mod$lambda
+ridge.mod$dev.ratio
 
 # Validación cruzada
 # Con Error cuadrático medio
@@ -854,7 +866,54 @@ individual_NEA_test[,-c("completo","completo_f")]
 
 predict(fit, newx=individual_NEA_test[,-c("completo","completo_f")])
 
+# Lasso
+grid <- 10^seq(3,-2,length=100)
+lasso.mod <- glmnet(x, y, family = "binomial", alpha = 1, lambda = grid)
+# Nos da una matriz 44x100 con 44 filas por cada variable y 100 columnas por cada lambda
+dim(coef(ridge.mod))
+plot(lasso.mod, xvar="lambda", label=TRUE)
 
+
+# Calculamos el ECM
+resultados <- data.frame()
+for(i in grid){
+  lasso.pred <- predict(lasso.mod, s=i, newx=x_test, type="response")
+  tabla <- data.frame(y.test = y_test, y.pred = ifelse(as.numeric(lasso.pred)>0.5,1,0))
+  bias2 <- (mean(tabla$y.pred) - mean(tabla$y.test))^2
+  var <- var(tabla$y.pred)
+  mse <- mean((tabla$y.test-tabla$y.pred)^2)
+  resultados <- rbind(resultados, data.frame(loglambda=log(i), bias2=bias2, var=var, mse=mse))
+  rm(lasso.pred, tabla, bias2, var, mse)
+}
+
+resultados %>% 
+  filter(loglambda<0) %>% 
+  ggplot() + 
+  geom_line(aes(loglambda, var, color="Var")) + 
+  geom_line(aes(loglambda, mse, color="MSE")) + 
+  geom_line(aes(loglambda, bias2, color="Bias")) +
+  geom_point(data=resultados[resultados$mse==min(resultados$mse),][1,], 
+             aes(loglambda, mse, color="MSE"), shape=4) +
+  theme_light()
+
+
+# Validación cruzada
+# Con Error cuadrático medio
+cvfit.mse <- cv.glmnet(x = x, y = y, type.measure = "mse", alpha=1, family="binomial")
+plot(cvfit.mse)
+log(cvfit.mse$lambda.min)
+
+cvfit.mse
+
+# Con deviance
+cvfit.dev <- cv.glmnet(x = x, y = y, type.measure = "deviance", alpha=1, family="binomial")
+plot(cvfit.dev)
+log(cvfit.dev$lambda.min)
+
+# AUC
+cvfit.auc <- cv.glmnet(x = x, y = y, type.measure = "auc", alpha=1, family="binomial")
+plot(cvfit.auc)
+log(cvfit.auc$lambda.min)
 
 
 # Al momento de elegir el mejor modelo (al final)
