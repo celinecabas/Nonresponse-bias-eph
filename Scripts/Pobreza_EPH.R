@@ -511,8 +511,9 @@ individual_NEA[, completo:= ifelse(nro_rep==4, 1, 0)]
 individual_NEA <- merge.data.table(individual_NEA, hogar_NEA[,c(3:6,13,14,16:19,21:24,26,27:39,41,43)],
                                    by = c("ANO4","TRIMESTRE","CODUSU","NRO_HOGAR"), all.x=T)
 
-# Base para jupyternotebook
-fwrite(individual_NEA, "Bases/individual_NEA_prediccion.txt", sep=";",encoding = "UTF-8")
+# Formateamos las variables
+individual_NEA <- individual_NEA %>% 
+  mutate(across(c(informal,mujer,casadounido,ESTADO,CAT_INAC,CAT_OCUP,caes_seccion_cod), as.factor))
 
 # Seleccionamos las variables que vamos a utilizar en los modelos
 
@@ -555,12 +556,10 @@ individual_NEA_train <- individual_NEA_train %>%
          CALIFICACION, JERARQUIA, caes_seccion_cod, PP04B1,
          # Características de composición del hogar
          cantidad_varones, cantidad_mujeres, cantidad_ocupados, 
-         cantidad_desocupados, cantidad_informales, edad_promedio_hogar,
-         # Medidas por área
-         prop_ocupados_area, prop_desocup_area, prop_informal_area)
+         cantidad_desocupados, cantidad_informales, edad_promedio_hogar)
 
 
-# 1) Modelo logístico # --------------------
+# 1) Modelo logístico --------------------
 
 # Stepwise
 modelofull <- glm(completo~., data=individual_NEA_train)
@@ -577,10 +576,22 @@ modelo_logit <- glm(formula=steplogit$formula,
                     family = binomial(link="logit"))
 summary(modelo_logit)
 
+# Probabilidad predicha
+individual_NEA_test$pprob_logit <- predict.glm(modelo_logit, newdata = individual_NEA_test)
+
+# Óptimo punto de corte
+# Calcular curva ROC
+roc_obj <- pROC::roc(individual_NEA_test$completo, individual_NEA_test$pprob_logit)
+
+# Encontrar el umbral óptimo con el índice de Youden
+youden_index <- which.max(roc_obj$sensitivities + roc_obj$specificities - 1)
+optimal_threshold <- roc_obj$thresholds[youden_index]
+
+
 # Clases predichas
 individual_NEA_test$pclass_logit <- ifelse(predict.glm(modelo_logit, 
                                                        newdata = individual_NEA_test, 
-                                                       type = "response")>0.6, 1, 0)
+                                                       type = "response")>0.47, 1, 0)
 
 # Matriz de confusión
 cm_logit <- confusionMatrix(table(individual_NEA_test$completo,
@@ -622,20 +633,179 @@ medidas$cv.error <- cv.error
 # cv_error$delta
 
 
-# 2) Árbol de decisión # ----------------
+# 2. Árbol de decisión  ----------------
+
+individual_NEA_train$completo_f <- as.factor(individual_NEA_train$completo)
+individual_NEA_test$completo_f <- as.factor(individual_NEA_test$completo)
+individual_NEA$completo_f <- as.factor(individual_NEA$completo)
 
 # Ajuste
-modelo_rpart <- rpart(completo ~ ., data = individual_NEA_train, control = rpart.control(cp=0))
+modelo_rpart <- rpart(formula = completo_f ~ ., 
+                      data = individual_NEA_train[,-"completo"], 
+                      control = rpart.control(cp=0), 
+                      method = "class")
 
 # Poda del árbol según relación costo-complejidad 
 printcp(modelo_rpart)
-plotcp(modelo_rpart)
-modelo_rpart_podado <- prune(modelo_rpart, cp=6.2333e-04)
-prp(modelo_rpart_podado, extra=101, type=2,  xsep="/") 
+
+##  2.1. Gráfico de relación costo-complejidad --------------------------------
+# Convertir cptable a data.frame
+cp_df <- modelo_rpart$cptable %>% as.data.frame()
+cp0 <- modelo_rpart$cptable[, 1L]
+cp_df$CP <- sqrt(cp0 * c(Inf, cp0[-length(cp0)]))
+cp_df$ns <- seq_along(cp_df$nsplit)
+
+# Obtener valores con solo 5 breaks
+breaks_x <- pretty(cp_df$ns, n = 5)
+breaks_x[1]=1; breaks_x[8]=69
+
+# Asegurar que los labels correspondan a los breaks
+labels_x <- cp_df$CP[match(breaks_x, cp_df$ns)]
+labels_x <- signif(labels_x, 3)  # Redondear para mejorar legibilidad
+
+# Obtener valores para el eje secundario
+breaks_sec <- breaks_x
+labels_sec <- cp_df$nsplit[match(breaks_sec, cp_df$ns)]
+
+# Gráfico del parámetro de Costo-Complejidad
+grafico1_dt <- 
+  ggplot(cp_df, aes(x = ns, y = xerror)) +
+  geom_line(color = "#5c6b8a") +
+  geom_point(size = 1, color = "#5c6b8a") +
+  geom_hline(yintercept = min(cp_df$xerror), linetype = "dashed") +
+  scale_x_continuous(
+    name = "CP",
+    breaks = breaks_x, 
+    labels = labels_x,
+    sec.axis = sec_axis(
+      ~ ., 
+      name = "Tamaño del árbol (nodos terminales)",
+      breaks = breaks_sec, 
+      labels = labels_sec
+    )
+  ) +
+  labs(y = "Xerror") +
+  theme_light() + 
+  theme(text = element_text(family="serif"))
+grafico1_dt
+
+## 2.2. Gráfico de tasa de entrenamiento, testeo y cross validation -------------
+cp_table <- modelo_rpart$cptable
+
+# Número de nodos terminales en cada poda
+tamaño_arbol <- cp_table[, "nsplit"] + 1  # Agregamos 1 porque un árbol con 0 splits tiene 1 nodo
+cp <- cp_table[, "CP"]
+
+# Errores:
+error_train <- c()    # Train error
+error_cv <- list()      # CV error
+error_test <- c()     # Test error
+
+# 1) Train error para cada poda del árbol
+for (i in seq_along(tamaño_arbol)) {
+  modelo_podado <- prune(modelo_rpart, cp = cp_table[i, "CP"])  # Poda
+  pred_test <- predict(modelo_podado, individual_NEA_train, type="class")
+  error_train[i] <- mean(pred_test != individual_NEA_train$completo_f)  # Tasa de error en test
+}
+
+# 2) Test error para cada poda del árbol
+for (i in seq_along(tamaño_arbol)) {
+  modelo_podado <- prune(modelo_rpart, cp = cp_table[i, "CP"])  # Poda
+  pred_test <- predict(modelo_podado, individual_NEA_test, type="class")
+  error_test[i] <- mean(pred_test != individual_NEA_test$completo_f)  # Tasa de error en test
+}
+
+# 3) Cross-validation error
+y <- individual_NEA_train$completo_f
+X <- individual_NEA_train[,-c("completo","completo_f")]
+folds <- createFolds(y, k=10, list=TRUE)
+
+# Lista para almacenar errores por fold y tamaño de árbol
+errores_testeo <- list()
+
+for(i in 1:10){
+  test_idx <- folds[[i]]
+  train_idx <- setdiff(1:nrow(individual_NEA_train), test_idx)
+  
+  base_train <- individual_NEA_train[train_idx, ]
+  base_test <- individual_NEA_train[test_idx, ]
+  
+  # Entrenar modelo completo sin poda (cp=0)
+  modelo_fold <- rpart(formula = completo_f ~ ., 
+                  data = base_train[,-c("completo")], 
+                  control = rpart.control(cp=0), 
+                  method = "class")
+ 
+  # Extraer valores de CP para podar
+  cp_table <- modelo_fold$cptable
+  cp_vals <- cp_table[, "CP"]  # Lista de CPs
+  
+  # Guardar errores en una tabla para este fold
+  errores_fold <- numeric(length(cp_vals))
+  
+  # Iterar sobre cada tamaño del árbol
+  for (j in seq_along(cp_vals)){
+    modelo_podado <- prune(modelo_fold, cp = cp_vals[j])  # Poda 
+    pred_test <- predict(modelo_podado, base_test, type="class")
+    
+    # Calcular tasa de error en test
+    error_base_test <- mean(pred_test != base_test$completo_f)
+    errores_fold[j] <- error_base_test
+  }
+  
+  # Guardar errores del fold en la lista
+  errores_testeo[[i]] <- errores_fold
+  
+}
+
+# Convertir la lista a data.frame
+errores_df <- do.call(rbind, errores_testeo)
+colnames(errores_df) <- paste0("CP_", 1:65)
+rownames(errores_df) <- paste0("Fold_", 1:10)
+
+# Mostrar tabla final de errores
+print(errores_df)
+error_cv <- colMeans(errores_df)
+
+# Crear un dataframe con los errores
+df_errores <- data.table(
+  Tamaño = tamaño_arbol,
+  cp = cp,
+  error_train = error_train,
+  error_test = error_test,
+  error_cv = error_cv[1:64]
+)
+
+# Marcamos mínimos en entrenamiento y testeo
+df_errores[, minimo_testeo := ifelse(error_test==min(error_test), error_test, NA)]
+df_errores[, minimo_cv := ifelse(error_cv==min(error_cv), error_cv, NA)]
+df_errores <- df_errores %>% filter(Tamaño > 1 & Tamaño<1000)
+
+# Graficamos las tasas
+grafico2_dt <- 
+  ggplot(df_errores, aes(x = Tamaño)) +
+  geom_line(aes(y = error_train, color = "Entrenamiento"), linewidth = 1) +
+  geom_line(aes(y = error_test, color = "Testeo"),linewidth = 1) +
+  geom_line(aes(y = error_cv, color = "Validación cruzada"), linewidth = 1) +
+  geom_hline(aes(yintercept = min(error_cv)), linetype = 2) + 
+  labs(x = "Tamaño del árbol (nodos terminales)",
+       y = "Tasa de error") +
+  scale_color_manual(values = c("Entrenamiento" = "#ba4c40", 
+                                "Testeo" = "#f07838", 
+                                "Validación cruzada" = "#5c6b8a")) +
+  theme_light() + 
+  theme(legend.position = "bottom", 
+        legend.title = element_blank(),
+        text = element_text(family="serif")); grafico2_dt
+
+
+## 2.3. Poda del árbol según relación costo complejidad ---------------
+cp_df$CP[cp_df$xerror==min(cp_df$xerror)]
+modelo_rpart_podado <- prune(modelo_rpart, cp = 0.0002668677)
+
 
 # Clases predichas
-individual_NEA_test$pclass_cart <- predict(modelo_rpart_podado, newdata=individual_NEA_test)
-individual_NEA_test$pclass_cart <- ifelse(individual_NEA_test$pclass_cart>0.5, 1, 0)
+individual_NEA_test$pclass_cart <- predict(modelo_rpart_podado, newdata=individual_NEA_test, type="class")
 
 # Probabilidades predichas
 # individual_NEA_test$pprob_cart <- predict(modelo_rpart_podado, newdata=individual_NEA_test, type="prob")
@@ -650,9 +820,6 @@ perf.cart <- ROCR::performance (pred.cart, "tpr", "fpr") #guarda los valores de 
 plot(perf.cart, main = "Curva ROC", ylab = "Sensibilidad", xlab = "1-especificidad") # grafica la curva ROC
 abline(a=0, b=1) # agregamos la recta de referencia
 
-# Variables de importancia
-modelo_rpart_podado$variable.importance
-
 # Guardamos medidas de la clasificación
 medidas <- rbind(medidas,
                  data.frame(Modelo="Árbol CART",
@@ -664,12 +831,23 @@ medidas <- rbind(medidas,
                             auc = round(ROCR::performance(pred.cart, measure = "auc")@y.values[[1]], 5)))
 
 
-# 3) Random Forest # --------------
-library(randomForest)
+## 2.4. Variables de importancia ---------------------------------------------
+var_importance <- as.data.frame(modelo_rpart$variable.importance) %>%
+  tibble::rownames_to_column(var = "Variable") %>%
+  rename(Importancia = `modelo_rpart$variable.importance`) %>% 
+  arrange(-Importancia) %>% 
+  head(15)
 
-individual_NEA_train$completo_f <- as.factor(individual_NEA_train$completo)
-individual_NEA_test$completo_f <- as.factor(individual_NEA_test$completo)
-individual_NEA$completo_f <- as.factor(individual_NEA$completo)
+ggplot(var_importance, aes(x = reorder(Variable, Importancia), y = Importancia)) +
+  geom_col(fill = "steelblue") +
+  coord_flip() +
+  theme_light() +
+  theme(text = element_text(family="serif")) + xlab("")
+
+
+
+# 3. Random Forest  --------------
+library(randomForest)
 
 # Ajustamos el modelo
 set.seed(123)
@@ -719,7 +897,7 @@ cv_error_rf <- rfcv(X,Y,cv.fold=10)
 cv_error_rf
 
 
-# XGBoost
+# 4) XGBoost  --------------------------------------
 library(xgboost)
 
 individual_NEA_train1 <- individual_NEA_train %>% 
@@ -789,52 +967,82 @@ medidas <- rbind(medidas,
 
 
 
-# Ridge regression and Lasso (para reducir varianza de las estimaciones)
+# RIDGE Y LASSO REGRESSION ---------------------------------------------------
+# Para reducir varianza en las estimaciones
+
 library(glmnet)
 
 # Definimos variables con conjunto de entrenamiento
-x <- individual_NEA_train[,-"completo_f"]
-x = model.matrix(completo ~ ., data = x)[,-1]
+X <- individual_NEA_train[,-"completo_f"]
+X = model.matrix(completo ~ ., data = X)[,-1]
 y = individual_NEA_train$completo
 
 # Filtramos la base de testeo y generamos los objetos para predicción
 regresores = colnames(individual_NEA_train)
-x_test = individual_NEA_test %>% select(all_of(regresores),-completo_f)
-x_test = model.matrix(completo ~ ., data = x_test)[,-1]
+X_test = individual_NEA_test %>% select(all_of(regresores),-completo_f)
+X_test = model.matrix(completo ~ ., data = X_test)[,-1]
 y_test = individual_NEA_test$completo
 
-# Ridge regression
-grid <- 10^seq(3,-1,length=100)
-ridge.mod <- glmnet(x, y, family = "binomial", alpha = 0)
-# Nos da una matriz 44x100 con 44 filas por cada variable y 100 columnas por cada lambda
-dim(coef(ridge.mod))
-plot(ridge.mod, xvar="lambda", label=TRUE)
 
+## Ridge Regression ------------------------------------------------------------
 
-# Calculamos el ECM
-resultados <- data.frame()
-for(i in grid){
-  ridge.pred <- predict(ridge.mod, s=i, newx=x_test, type="response")
-  tabla <- data.frame(y.test = y_test, y.pred = ifelse(as.numeric(ridge.pred)>0.5,1,0))
-  bias2 <- (mean(tabla$y.pred) - mean(tabla$y.test))^2
-  var <- var(tabla$y.pred)
-  mse <- mean((tabla$y.test-tabla$y.pred)^2)
-  resultados <- rbind(resultados, data.frame(loglambda=log(i), bias2=bias2, var=var, mse=mse))
-  rm(ridge.pred, tabla, bias2, var, mse)
+# 2. Definir validación cruzada (10 folds)
+folds <- createFolds(y, k = 10, list = TRUE)
+
+# 3. Almacenar métricas
+bias_values <- c()
+variance_values <- c()
+ecm_values <- c()
+
+# 4. Loop sobre cada fold
+for (i in 1:10) {
+  test_idx <- folds[[i]]
+  train_idx <- setdiff(1:nrow(individual_NEA_train), test_idx)
+  
+  X_train <- X[train_idx, ]
+  y_train <- y[train_idx]
+  X_test <- X[test_idx, ]
+  y_test <- y[test_idx]
+  
+  # Ajustar modelo Ridge con regresión logística
+  lambda_seq <- 10^seq(-3, 2, length = 100)  # Valores de lambda
+  ridge_model <- glmnet(X_train, y_train, alpha = 0, lambda = lambda_seq, family = "binomial")
+  
+  # Predecir probabilidades en el conjunto de prueba
+  preds <- predict(ridge_model, newx = X_test, s = lambda_seq, type = "response")
+  
+  # Calcular sesgo y varianza para cada valor de lambda
+  bias_fold <- colMeans(preds) - mean(y_test)  # Sesgo^2 = (E[f(x)] - y)^2
+  variance_fold <- apply(preds, 2, var)        # Varianza = Var(f(x))
+  
+  # Guardar valores
+  bias_values <- rbind(bias_values, bias_fold)
+  variance_values <- rbind(variance_values, variance_fold)
 }
 
-ggplot(resultados) + 
-  geom_line(aes(loglambda, var, color="Var")) + 
-  geom_line(aes(loglambda, mse, color="MSE")) + 
-  geom_line(aes(loglambda, bias2, color="Bias")) +
-  geom_point(data=resultados[resultados$mse==min(resultados$mse),][1,], 
-             aes(loglambda, mse, color="MSE"), shape=4) +
-  theme_light()
-  
-  
+# 5. Promediar sesgo, varianza y ecm en los folds
+bias_mean <- colMeans(bias_values^2)  # Sesgo² promedio
+variance_mean <- colMeans(variance_values)  # Varianza promedio
+ecm_mean <- bias_mean + variance_mean
 
-ridge.mod$lambda
-ridge.mod$dev.ratio
+# 6. Graficar el trade-off sesgo-varianza
+grafico_ridge_tradeoff <- 
+  ggplot(data = data.frame(lambda_seq=lambda_seq,
+                           bias_mean = bias_mean,
+                           variance_mean = variance_mean,
+                           ecm_mean)) + 
+  geom_line(aes(log(lambda_seq), sqrt(bias_mean), colour = "Sesgo"), linewidth = 0.7) + 
+  geom_line(aes(log(lambda_seq), sqrt(variance_mean), colour = "Desvío estándar"), linewidth = 0.7) + 
+  geom_line(aes(log(lambda_seq), sqrt(ecm_mean), colour="RMSE"), linewidth = 0.7) + 
+  geom_vline(xintercept = 2.5, linetype = "dashed") + 
+  theme_light() + 
+  theme(legend.position = "top", 
+        legend.title = element_blank(),
+        text=element_text(family="serif")) +
+  ylab("RMSE / Sesgo / Desvío estándar") + xlab(TeX("$log(\\lambda)$"))
+grafico_ridge_tradeoff
+
+
 
 # Validación cruzada
 # Con Error cuadrático medio
@@ -845,12 +1053,12 @@ log(cvfit.mse$lambda.min)
 cvfit.mse
 
 # Con deviance
-cvfit.dev <- cv.glmnet(x = x, y = y, type.measure = "deviance", alpha=0, family="binomial")
+cvfit.dev <- cv.glmnet(x = X, y = y, type.measure = "deviance", alpha=0, family="binomial")
 plot(cvfit.dev)
 log(cvfit.dev$lambda.min)
 
 # AUC
-cvfit.auc <- cv.glmnet(x = x, y = y, type.measure = "auc", alpha=0, family="binomial")
+cvfit.auc <- cv.glmnet(x = X, y = y, type.measure = "auc", alpha=0, family="binomial")
 plot(cvfit.auc)
 log(cvfit.auc$lambda.min)
 
@@ -860,41 +1068,70 @@ plot(cvfit.error)
 log(cvfit.error$lambda.min)
 
 
-# Varianza
 
-individual_NEA_test[,-c("completo","completo_f")]
+## Lasso Regression ---------------------------------------------------------------
 
-predict(fit, newx=individual_NEA_test[,-c("completo","completo_f")])
+# 2. Definir validación cruzada (10 folds)
+folds <- createFolds(y, k = 10, list = TRUE)
 
-# Lasso
-grid <- 10^seq(3,-2,length=100)
-lasso.mod <- glmnet(x, y, family = "binomial", alpha = 1, lambda = grid)
-# Nos da una matriz 44x100 con 44 filas por cada variable y 100 columnas por cada lambda
-dim(coef(ridge.mod))
-plot(lasso.mod, xvar="lambda", label=TRUE)
+# 3. Almacenar métricas
+bias_values <- c()
+variance_values <- c()
+ecm_values <- c()
 
-
-# Calculamos el ECM
-resultados <- data.frame()
-for(i in grid){
-  lasso.pred <- predict(lasso.mod, s=i, newx=x_test, type="response")
-  tabla <- data.frame(y.test = y_test, y.pred = ifelse(as.numeric(lasso.pred)>0.5,1,0))
-  bias2 <- (mean(tabla$y.pred) - mean(tabla$y.test))^2
-  var <- var(tabla$y.pred)
-  mse <- mean((tabla$y.test-tabla$y.pred)^2)
-  resultados <- rbind(resultados, data.frame(loglambda=log(i), bias2=bias2, var=var, mse=mse))
-  rm(lasso.pred, tabla, bias2, var, mse)
+# 4. Loop sobre cada fold
+for (i in 1:10) {
+  test_idx <- folds[[i]]
+  train_idx <- setdiff(1:nrow(individual_NEA_train), test_idx)
+  
+  X_train <- X[train_idx, ]
+  y_train <- y[train_idx]
+  X_test <- X[test_idx, ]
+  y_test <- y[test_idx]
+  
+  # Ajustar modelo Lasso con regresión logística
+  lambda_seq <- 10^seq(-3, 1, length = 100)  # Valores de lambda
+  lasso_model <- glmnet(X_train, y_train, alpha = 1, lambda = lambda_seq, family = "binomial")
+  
+  # Predecir probabilidades en el conjunto de prueba
+  preds <- predict(lasso_model, newx = X_test, s = lambda_seq, type = "response")
+  
+  # Calcular sesgo y varianza para cada valor de lambda
+  bias_fold <- colMeans(preds) - mean(y_test)  # Sesgo^2 = (E[f(x)] - y)^2
+  variance_fold <- apply(preds, 2, var)     # Varianza = Var(f(x))
+  
+  # Guardar valores
+  bias_values <- rbind(bias_values, bias_fold)
+  variance_values <- rbind(variance_values, variance_fold)
 }
 
-resultados %>% 
-  filter(loglambda<0) %>% 
-  ggplot() + 
-  geom_line(aes(loglambda, var, color="Var")) + 
-  geom_line(aes(loglambda, mse, color="MSE")) + 
-  geom_line(aes(loglambda, bias2, color="Bias")) +
-  geom_point(data=resultados[resultados$mse==min(resultados$mse),][1,], 
-             aes(loglambda, mse, color="MSE"), shape=4) +
-  theme_light()
+# 5. Promediar sesgo, varianza y ecm en los folds
+bias_mean <- colMeans(bias_values^2)  # Sesgo² promedio
+variance_mean <- colMeans(variance_values)  # Varianza promedio
+ecm_mean <- bias_mean + variance_mean
+
+# 6. Graficar el trade-off sesgo-varianza
+grafico_lasso_tradeoff <- 
+  ggplot(data = data.frame(lambda_seq=lambda_seq,
+                           bias_mean=bias_mean,
+                           variance_mean=variance_mean,
+                           ecm_mean=ecm_mean)) + 
+  geom_line(aes(log(lambda_seq), sqrt(bias_mean), colour = "Sesgo"), linewidth = 0.7) + 
+  geom_line(aes(log(lambda_seq), sqrt(variance_mean), colour = "Desvío estándar"), linewidth = 0.7) + 
+  geom_line(aes(log(lambda_seq), sqrt(ecm_mean), colour="RMSE"), linewidth = 0.7) + 
+  geom_vline(xintercept = -2, linetype = "dashed") + 
+  theme_light() + 
+  theme(legend.position = "top", 
+        legend.title = element_blank(),
+        text=element_text(family="serif")) +
+  ylab("RMSE / Sesgo / Desvío estándar") + xlab(TeX("$log(\\lambda)$"))
+grafico_lasso_tradeoff
+
+
+
+save(grafico1_dt, grafico2_dt,
+     grafico_lasso_tradeoff, grafico_ridge_tradeoff, 
+     file="Informe y resultados/Modelos_clasificacion.RData")
 
 
 # Validación cruzada
@@ -915,6 +1152,14 @@ cvfit.auc <- cv.glmnet(x = x, y = y, type.measure = "auc", alpha=1, family="bino
 plot(cvfit.auc)
 log(cvfit.auc$lambda.min)
 
+# Misclassification error
+cvfit.error <- cv.glmnet(x = x, y = y, type.measure = "class", alpha=1, family="binomial")
+plot(cvfit.error)
+log(cvfit.error$lambda.min)
+
+
+
+grafico_ridge_tradeoff + grafico_lasso_tradeoff
 
 # Al momento de elegir el mejor modelo (al final)
 # Guardamos las probabilidades predichas

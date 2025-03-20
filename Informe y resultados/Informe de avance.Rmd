@@ -70,8 +70,7 @@ library(patchwork)
 ```{r}
 # Cargamos resultados
 load("Resultados.RData")
-# Tema para los gráficos
-# ggthemr("sky")
+load("Modelos_clasificacion.RData")
 ```
 
 \fancyhead{} 
@@ -80,7 +79,7 @@ load("Resultados.RData")
 \pagestyle{fancy}
 
 \chapter{Introducción}
-\label{Capitulo2}
+\label{Capitulo 1}
 \lhead{Capítulo 1. \emph{Introducción}}
 
 En el campo estadístico del muestreo, la no respuesta es una de las principales problemáticas a abordar debido a que si no se comporta de manera aleatoria puede introducir sesgos en las distribuciones de las variables que nos interesan medir y, por lo tanto, en las conclusiones que saquemos de testear hipótesis a partir de ellas.
@@ -105,11 +104,9 @@ En este trabajo, se plantea esta problemática en el marco de la Encuesta Perman
 
 Las consecuencias de las discontinuidades en los paneles de observaciones sobre la medición de indicadores socioeconómicos en aglomerados urbanos pequeños constituye aún una temática poco estudiada a nivel nacional, más allá de los avances metodológicos publicados por el INDEC \cite{indecmetod}. Resaltando que aún no se han realizado investigaciones de este tipo a nivel regional por lo cual este trabajo contribuye al área metodológica de medición del ingreso familiar y la pobreza monetaria medido por encuestas, para unidades geográficas pequeñas como es el caso de los aglomerados del NEA.
 
-```{r, message=FALSE, fig.cap="Resultados de pobreza e indigencia de los aglomerados urbanos del Nordeste Argentino, período 2017-I Trim a 2023-II Trim."}
-#grafico2 + grafico3 + plot_layout(guides = "collect") & theme(legend.position = "bottom")
+```{r, message=FALSE, fig.cap="Resultados de pobreza e indigencia de los aglomerados urbanos del Nordeste Argentino, período 2017-I Trim a 2023-II Trim.", fig.width = 8, fig.height = 4, dpi = 100}
+grafico2 + grafico3 + plot_layout(guides = "collect") & theme(legend.position = "top")
 ```
-
-![](Figura1.png)
 
 # Antecedentes
 
@@ -416,6 +413,19 @@ Actualmente y siguiendo la literatura de *response propensity modeling* que prop
 Una vez seleccionado el mejor modelo, se corrigen los factores de expansión. Por el momento se está implementando la metodología más tradicional de dividir el ponderador por la probabilidad de respuesta, y reescalando para mantener la representación de viviendas por área muestral.
 
 Corregidos los ponderadores, se pretende comparar las distribuciones del ingreso per cápita familiar acumulado para ver posibles cambios pre y post corrección por no respuesta y balanceo de la muestra. Pasando posteriormente a analizar los cambios en el nivel de pobreza monetaria que depende del ingreso.
+
+```{r, fig.width = 8, fig.height = 4, dpi = 100, fig.cap = "Tasa de error de testeo, de entrenamiento y por validación cruzada según cantidad de nodos terminales (izquierda) junto con tasa de error relativa por validación cruzada según relación costo-complejidad del árbol."}
+grafico2_dt + grafico1_dt + 
+  plot_layout(guides = "collect") & theme(legend.position = "top")
+```
+
+
+### Modelos con suavizado de ponderadores
+
+```{r, fig.width = 8, fig.height = 4, dpi = 100, fig.cap = "Sesgo, desvío estándar y raíz del error cuadrático medio para regresión Ridge (izquierda) y lasso (derecha) estimados mediante validación cruzada."}
+grafico_ridge_tradeoff + grafico_lasso_tradeoff
+```
+
 
 # Tareas pendientes/dudas por resolver
 
