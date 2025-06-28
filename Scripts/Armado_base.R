@@ -16,6 +16,25 @@ for (i in 1:length(files)){
 archivos_individual <- archivos[grepl("individual|personas",archivos, ignore.case = T)]
 archivos_hogar <- archivos[grepl("hogar",archivos, ignore.case = T)]
 
+# Quitamos la base de 2024T4 del listado de archivos
+posicion_2024T4_ind <- which(archivos_individual=="Bases/EPH_Base_Usuario/EPH_usu_4_Trim_2024_txt/usu_individual_T424.txt")
+posicion_2024T4_hog <- which(archivos_hogar=="Bases/EPH_Base_Usuario/EPH_usu_4_Trim_2024_txt/usu_hogar_T424.txt")
+archivos_individual <- archivos_individual[-posicion_2024T4_ind]
+archivos_hogar <- archivos_hogar[-posicion_2024T4_hog]
+
+# Cargamos las bases para comparar variables y quitar las nuevas
+# ind_2024T3 <- fread("Bases/EPH_Base_Usuario/EPH_usu_3_Trim_2024_txt/usu_individual_T324.txt")
+# ind_2024T4 <- fread("Bases/EPH_Base_Usuario/EPH_usu_4_Trim_2024_txt/usu_individual_T424.txt")
+# hog_2024T3 <- fread("Bases/EPH_Base_Usuario/EPH_usu_3_Trim_2023_txt/usu_hogar_T323.txt")
+# hog_2024T4 <- fread("Bases/EPH_Base_Usuario/EPH_usu_4_Trim_2024_txt/usu_hogar_T424.txt")
+
+
+# Variables nuevas a partir de 2024 T4
+# variables_nuevas <- setdiff(names(hog_2024T4),names(hog_2024T3))
+
+# Las quitamos de la base
+# hog_2024T4 <- hog_2024T4 |> select(-variables_nuevas)
+
 # Bases individuales
 individual <- data.table()
 for (i in 1:length(archivos_individual)){
@@ -23,6 +42,9 @@ for (i in 1:length(archivos_individual)){
   individual <- rbind(individual, base, fill=T)
   rm(base)
 }
+
+# Anexamos la base 2024 T4
+# individual <- rbind(individual, base2024T4)
 
 # Bases hogares
 hogar <- data.table()

@@ -27,13 +27,20 @@ hogar_NEA[, (names(.SD)) := lapply(.SD, as.factor),
           .SDcols = c("II3", "II4_1", "II4_2", "II4_3",
                       "II5", "II6", "II7", "II8", "II9")]
 
+# Medida por área de representación de los hogares
+hogar_NEA[, area:= substr(CODUSU, 1, 8)]
+hogar_NEA[, PONDERA_repr:= sum(PONDERA)/n_distinct(paste0(CODUSU,NRO_HOGAR)),
+          by = .(periodo, AGLOMERADO, AGLO_DESC, area)]
+
+hist(hogar_NEA$PONDERA_repr)
+
 # Individual
 individual_NEA <- fread("Bases/individual_NEA.txt")
 individual_NEA[, periodo:= as.yearqtr(paste0(ANO4,"-",TRIMESTRE))]
 
 setnames(hogar_NEA, "CBA", "CBA_hogar")
 setnames(hogar_NEA, "CBT", "CBT_hogar")
-individual_NEA <- merge.data.table(individual_NEA, hogar_NEA[,c(2:6,11,25,66,67,91:92,98)],
+individual_NEA <- merge.data.table(individual_NEA, hogar_NEA[,c(2:6,11,25,66,67,91:92,98,101)],
                                    by = c("AGLOMERADO", "ANO4", "TRIMESTRE", "CODUSU", "NRO_HOGAR"))
 
 setorder(individual_NEA, CODUSU, NRO_HOGAR, ANO4, TRIMESTRE)
@@ -140,6 +147,9 @@ individual_NEA[, area:= substr(CODUSU, 1, 8)]
 # # Proporción de informales
 # individual_NEA[, prop_informal_area:= n_distinct(id_persona[informal==1])/n_distinct(id_persona), by = .(area)]
 
+# Representación de hogares dentro del área
+individual_NEA[, represent:= sum(PONDERA)/n_distinct(CODUSU), by = .(area)]
+
 # Formateamos "CODUSU-NROHOGAR" y año como factor
 individual_NEA[, index:= as.factor(index)]
 individual_NEA[, anio:= as.factor(ANO4)]
@@ -167,15 +177,15 @@ prop_por_periodo <- individual_NEA %>%
   ungroup() %>% 
   mutate(prop=n/total) %>% 
   select(periodo, nro_rep, prop) %>% 
-  pivot_wider(names_from = "nro_rep", values_from = "prop")
+  pivot_wider(names_from = "nro_rep", values_from = "prop"); prop_por_periodo
 
 # Quitamos un año al comienzo y al final + período de pandemia
-# 2016 Q2, 2016 Q3, 2016Q4, 2017 Q1, 2020 Q2, 2023 Q3, 2023 Q4, 2024 Q1, 2024 Q2
+# 2016 Q2, 2016 Q3, 2016 Q4, 2017 Q1, 2020 Q2, 2023 Q3, 2023 Q4, 2024 Q1, 2024 Q2
 
 
 # Filtramos la base de datos por los períodos a analizar
 individual_NEA <- subset(individual_NEA, 
-                         !(periodo %in% c("2016 Q2", "2016 Q3", "2016 Q4", "2017 Q1", "2020 Q2", "2023 Q3", "2023 Q4", "2024 Q1", "2024 Q2")) & 
+                         !(periodo %in% c("2016 Q2", "2016 Q3", "2016 Q4", "2017 Q1", "2020 Q2", "2023 Q4", "2024 Q1", "2024 Q2", "2024 Q3")) & 
                            IPCF_d>0)
 
 
@@ -225,6 +235,7 @@ grafico1 <- individual_NEA %>%
   theme(legend.position = "bottom",
         plot.background = element_rect(fill="#fbfbfb"),
         text = element_text(family="serif"))
+grafico1
 
 # Valores altos de PONDIH y PONDERA
 # Suponemos reponderación por baja tasa de respuesta
@@ -254,6 +265,7 @@ grafico2 <-
         legend.title = element_blank(),
         text = element_text(family="serif")) + 
   xlab("") + ylab("")
+grafico2
 
 # Resultados indigencia
 grafico3 <- 
@@ -268,11 +280,7 @@ grafico3 <-
         legend.title = element_blank(),
         text=element_text(family="serif")) +
   xlab("") + ylab("") 
-
-library(patchwork)
-
-# ! Exportar gráficos 2 y 3 con resultados de pobreza e indigencia
-
+grafico3
 
 ## MMultinomial para nro rep #### 
 library(mclogit)
@@ -515,6 +523,10 @@ individual_NEA <- merge.data.table(individual_NEA, hogar_NEA[,c(3:6,13,14,16:19,
 individual_NEA <- individual_NEA %>% 
   mutate(across(c(informal,mujer,casadounido,ESTADO,CAT_INAC,CAT_OCUP,caes_seccion_cod), as.factor))
 
+# Agregamos variables por área y período
+individual_NEA[, viviendasxarea:= n_distinct(CODUSU), 
+  by = .(periodo, AGLO_DESC, AGLOMERADO, area)]
+hist(individual_NEA$viviendasxarea)
 # Seleccionamos las variables que vamos a utilizar en los modelos
 
 # Muestra en train (70%) y test (30%) por aglomerado y período
@@ -542,7 +554,7 @@ for (i in unique(individual_NEA$AGLO_DESC)){
 individual_NEA_train <- individual_NEA_train %>% 
   select(completo, # Variable de respuesta
          # Variables de identificación del hogar
-         AGLO_DESC,
+         AGLO_DESC, periodo, PONDERA_repr, viviendasxarea,
          # Ingreso del hogar
          IPCF_d, otros_ing_nolab, RDECOCUR, ADECOCUR,
          # Datos del jefe de hogar
@@ -557,6 +569,29 @@ individual_NEA_train <- individual_NEA_train %>%
          # Características de composición del hogar
          cantidad_varones, cantidad_mujeres, cantidad_ocupados, 
          cantidad_desocupados, cantidad_informales, edad_promedio_hogar)
+
+#individual_NEA_train <- individual_NEA_train |> filter(n_entrevista==1)
+#individual_NEA_train$n_entrevista=NULL
+
+# Probamos ajustando un modelo por aglomerado
+# Gran Resistencia
+individual_GR_test <- individual_NEA_test[AGLO_DESC=="Gran Resistencia"]
+individual_GR_train <- individual_NEA_train[AGLO_DESC=="Gran Resistencia"]
+
+# Corrientes
+individual_CT_test <- individual_NEA_test[AGLO_DESC=="Corrientes",]
+individual_CT_train <- individual_NEA_train[AGLO_DESC=="Corrientes"]
+
+# Formosa
+individual_FM_test <- individual_NEA_test[AGLO_DESC=="Formosa",]
+individual_FM_train <- individual_NEA_train[AGLO_DESC=="Formosa"]
+
+# Posadas
+individual_PS_test <- individual_NEA_test[AGLO_DESC=="Posadas",]
+individual_PS_train <- individual_NEA_train[AGLO_DESC=="Posadas"]
+
+
+
 
 
 # 1) Modelo logístico --------------------
@@ -633,12 +668,33 @@ medidas$cv.error <- cv.error
 # cv_error$delta
 
 
+
+
 # 2. Árbol de decisión  ----------------
 
+# Variables tipo factor
+# NEA
 individual_NEA_train$completo_f <- as.factor(individual_NEA_train$completo)
 individual_NEA_test$completo_f <- as.factor(individual_NEA_test$completo)
 individual_NEA$completo_f <- as.factor(individual_NEA$completo)
 
+# Gran Resistencia
+individual_GR_train$completo_f <- as.factor(individual_GR_train$completo)
+individual_GR_test$completo_f <- as.factor(individual_GR_test$completo)
+
+# Corrientes
+individual_CT_train$completo_f <- as.factor(individual_CT_train$completo)
+individual_CT_test$completo_f <- as.factor(individual_CT_test$completo)
+
+# Formosa
+individual_FM_train$completo_f <- as.factor(individual_FM_train$completo)
+individual_FM_test$completo_f <- as.factor(individual_FM_test$completo)
+
+# Posadas
+individual_PS_train$completo_f <- as.factor(individual_PS_train$completo)
+individual_PS_test$completo_f <- as.factor(individual_PS_test$completo)
+
+# Modelo agregado para el NEA
 # Ajuste
 modelo_rpart <- rpart(formula = completo_f ~ ., 
                       data = individual_NEA_train[,-"completo"], 
@@ -760,7 +816,7 @@ for(i in 1:10){
 
 # Convertir la lista a data.frame
 errores_df <- do.call(rbind, errores_testeo)
-colnames(errores_df) <- paste0("CP_", 1:65)
+colnames(errores_df) <- paste0("CP_", 1:67)
 rownames(errores_df) <- paste0("Fold_", 1:10)
 
 # Mostrar tabla final de errores
@@ -773,7 +829,7 @@ df_errores <- data.table(
   cp = cp,
   error_train = error_train,
   error_test = error_test,
-  error_cv = error_cv[1:64]
+  error_cv = error_cv[1:67]
 )
 
 # Marcamos mínimos en entrenamiento y testeo
@@ -857,18 +913,21 @@ modelo_rf <- randomForest(completo_f ~ . - completo,
                           na.action = na.omit)
 
 # Matriz de confusión
-individual_NEA_test$pclass_rf <- predict(modelo_rf, newdata=individual_NEA_test)
+individual_NEA_test$pclass_rf <- predict(modelo_rf, newdata=individual_NEA_test, type="class")
+individual_NEA_test$pprob_rf <- predict(modelo_rf, newdata=individual_NEA_test, type="prob")[,2]
 cm_rf <- confusionMatrix(table(individual_NEA_test$completo_f, individual_NEA_test$pclass_rf), positive = "1")
 cm_rf
 
 # Variables de importancia
-data.frame(variables = rownames(modelo_rf$importance), 
-           importancia = modelo_rf$importance[,4]) %>% 
+data.frame(variables = rownames(modelo_rf$importance)[1:20], 
+           importancia = modelo_rf$importance[1:20,4]) %>% 
   ggplot(aes(x=importancia,y=reorder(variables,importancia))) + 
   geom_bar(stat = "identity")
 
 # Curva ROC
-pred.rf <- ROCR::prediction(as.numeric(individual_NEA_test$pclass_rf), individual_NEA_test$completo) #solo cambia el formato del objeto para que sea soportable por la función performance
+library(ROCR)
+na.position <- is.na(individual_NEA_test$pprob_rf)
+pred.rf <- ROCR::prediction(individual_NEA_test$pprob_rf[na.position==F], as.factor(individual_NEA_test$completo[na.position==F])) #solo cambia el formato del objeto para que sea soportable por la función performance
 perf.rf <- ROCR::performance (pred.rf, "tpr", "fpr") #guarda los valores de TPR (sensibilidad) y FPR (1-especificidad)
 plot(perf.rf, main = "Curva ROC", ylab = "Sensibilidad", xlab = "1-especificidad") # grafica la curva ROC
 abline(a=0, b=1) # agregamos la recta de referencia
@@ -882,6 +941,7 @@ save(modelo_rf, file="Informe y resultados/Modelos_clasificacion.RData")
 # Guardamos medidas de la clasificación
 medidas <- rbind(medidas,
                  data.frame(Modelo="Random Forest",
+                            Aglomerado="NEA",
                             accuracy = round(cm_rf$overall[["Accuracy"]],5),
                             sensibilidad = round(cm_rf$byClass[["Sensitivity"]], 5),
                             especificidad = round(cm_rf$byClass[["Specificity"]], 5),
@@ -895,6 +955,126 @@ Y <- individual_NEA_train$completo
 X <- individual_NEA_train[,-"completo"]
 cv_error_rf <- rfcv(X,Y,cv.fold=10)
 cv_error_rf
+
+# Probabilidades predichas con XGBoost
+individual_NEA$pprob_rf <- predict(modelo_rf, newdata=individual_NEA, type="prob")[,2]
+
+## 3.1. Random Forest. Por aglomerados -------------------
+
+# Gran Resistencia
+modelo_rf_GR <- randomForest(completo_f ~ . - completo - AGLO_DESC, 
+                             data = individual_GR_train, 
+                             importance = T, 
+                             na.action = na.omit)
+
+# Corrientes
+modelo_rf_CT <- randomForest(completo_f ~ . - completo - AGLO_DESC, 
+                             data = individual_CT_train, 
+                             importance = T, 
+                             na.action = na.omit)
+
+# Formosa
+modelo_rf_FM <- randomForest(completo_f ~ . - completo - AGLO_DESC, 
+                             data = individual_FM_train, 
+                             importance = T, 
+                             na.action = na.omit)
+# Posadas
+modelo_rf_PS <- randomForest(completo_f ~ . - completo - AGLO_DESC, 
+                             data = individual_PS_train, 
+                             importance = T, 
+                             na.action = na.omit)
+
+# Matriz de confusión
+# Gran Resistencia
+individual_GR_test$pclass_rf <- predict(modelo_rf_GR, newdata=individual_GR_test)
+cm_GR_rf <- confusionMatrix(table(individual_GR_test$completo_f, individual_GR_test$pclass_rf), positive = "1")
+cm_GR_rf
+# Corrientes
+individual_CT_test$pclass_rf <- predict(modelo_rf_CT, newdata=individual_CT_test)
+cm_CT_rf <- confusionMatrix(table(individual_CT_test$completo_f, individual_CT_test$pclass_rf), positive = "1")
+cm_CT_rf
+# Formosa
+individual_FM_test$pclass_rf <- predict(modelo_rf_FM, newdata=individual_FM_test)
+cm_FM_rf <- confusionMatrix(table(individual_FM_test$completo_f, individual_FM_test$pclass_rf), positive = "1")
+cm_FM_rf
+# Posadas
+individual_PS_test$pclass_rf <- predict(modelo_rf_PS, newdata=individual_PS_test)
+cm_PS_rf <- confusionMatrix(table(individual_PS_test$completo_f, individual_PS_test$pclass_rf), positive = "1")
+cm_PS_rf
+
+# Curva ROC
+# Gran Resistencia
+pred.rf.GR <- ROCR::prediction(as.numeric(individual_GR_test$pclass_rf), individual_GR_test$completo) #solo cambia el formato del objeto para que sea soportable por la función performance
+perf.rf.GR <- ROCR::performance (pred.rf.GR, "tpr", "fpr") #guarda los valores de TPR (sensibilidad) y FPR (1-especificidad)
+
+# Corrientes
+pred.rf.CT <- ROCR::prediction(as.numeric(individual_CT_test$pclass_rf), individual_CT_test$completo) #solo cambia el formato del objeto para que sea soportable por la función performance
+perf.rf.CT <- ROCR::performance (pred.rf.CT, "tpr", "fpr") #guarda los valores de TPR (sensibilidad) y FPR (1-especificidad)
+
+# Formosa
+pred.rf.FM <- ROCR::prediction(as.numeric(individual_FM_test$pclass_rf), individual_FM_test$completo) #solo cambia el formato del objeto para que sea soportable por la función performance
+perf.rf.FM <- ROCR::performance (pred.rf.FM, "tpr", "fpr") #guarda los valores de TPR (sensibilidad) y FPR (1-especificidad)
+
+# Posadas
+pred.rf.PS <- ROCR::prediction(as.numeric(individual_PS_test$pclass_rf), individual_PS_test$completo) #solo cambia el formato del objeto para que sea soportable por la función performance
+perf.rf.PS <- ROCR::performance (pred.rf.PS, "tpr", "fpr") #guarda los valores de TPR (sensibilidad) y FPR (1-especificidad)
+
+# Guardamos medidas de la clasificación
+# Gran Resistencia
+medidas <- rbind(medidas,
+                 data.frame(Modelo="Random Forest",
+                            Aglomerado="Gran Resistencia",
+                            accuracy = round(cm_GR_rf$overall[["Accuracy"]],5),
+                            sensibilidad = round(cm_GR_rf$byClass[["Sensitivity"]], 5),
+                            especificidad = round(cm_GR_rf$byClass[["Specificity"]], 5),
+                            VPP = round(cm_GR_rf$byClass[["Pos Pred Value"]], 5),
+                            VPN = round(cm_GR_rf$byClass[["Neg Pred Value"]], 5),
+                            auc = round(ROCR::performance(pred.rf.GR, measure = "auc")@y.values[[1]], 5),
+                            cv.error=NA))
+# Corrientes
+medidas <- rbind(medidas,
+                 data.frame(Modelo="Random Forest",
+                            Aglomerado="Corrientes",
+                            accuracy = round(cm_CT_rf$overall[["Accuracy"]],5),
+                            sensibilidad = round(cm_CT_rf$byClass[["Sensitivity"]], 5),
+                            especificidad = round(cm_CT_rf$byClass[["Specificity"]], 5),
+                            VPP = round(cm_CT_rf$byClass[["Pos Pred Value"]], 5),
+                            VPN = round(cm_CT_rf$byClass[["Neg Pred Value"]], 5),
+                            auc = round(ROCR::performance(pred.rf.CT, measure = "auc")@y.values[[1]], 5),
+                            cv.error=NA))
+
+# Formosa
+medidas <- rbind(medidas,
+                 data.frame(Modelo="Random Forest",
+                            Aglomerado="Formosa",
+                            accuracy = round(cm_FM_rf$overall[["Accuracy"]],5),
+                            sensibilidad = round(cm_FM_rf$byClass[["Sensitivity"]], 5),
+                            especificidad = round(cm_FM_rf$byClass[["Specificity"]], 5),
+                            VPP = round(cm_FM_rf$byClass[["Pos Pred Value"]], 5),
+                            VPN = round(cm_FM_rf$byClass[["Neg Pred Value"]], 5),
+                            auc = round(ROCR::performance(pred.rf.FM, measure = "auc")@y.values[[1]], 5),
+                            cv.error=NA))
+
+# Posadas
+medidas <- rbind(medidas,
+                 data.frame(Modelo="Random Forest",
+                            Aglomerado="Posadas",
+                            accuracy = round(cm_PS_rf$overall[["Accuracy"]],5),
+                            sensibilidad = round(cm_PS_rf$byClass[["Sensitivity"]], 5),
+                            especificidad = round(cm_PS_rf$byClass[["Specificity"]], 5),
+                            VPP = round(cm_PS_rf$byClass[["Pos Pred Value"]], 5),
+                            VPN = round(cm_PS_rf$byClass[["Neg Pred Value"]], 5),
+                            auc = round(ROCR::performance(pred.rf.PS, measure = "auc")@y.values[[1]], 5),
+                            cv.error=NA))
+
+
+# Probabilidad promedio de que complete el esquema de la encuesta
+bias_NEA <- (mean(as.numeric(individual_NEA_test$pclass_rf)) - mean(as.numeric(individual_NEA_test$completo_f)))^2; bias_NEA
+bias_GR <- (mean(as.numeric(individual_GR_test$pclass_rf)) - mean(as.numeric(individual_GR_test$completo_f)))^2; bias_GR
+bias_CT <- (mean(as.numeric(individual_CT_test$pclass_rf)) - mean(as.numeric(individual_CT_test$completo_f)))^2; bias_CT
+bias_FM <- (mean(as.numeric(individual_FM_test$pclass_rf)) - mean(as.numeric(individual_FM_test$completo_f)))^2; bias_FM
+bias_PS <- (mean(as.numeric(individual_PS_test$pclass_rf)) - mean(as.numeric(individual_PS_test$completo_f)))^2; bias_PS
+
 
 
 # 4) XGBoost  --------------------------------------
@@ -1039,7 +1219,7 @@ grafico_ridge_tradeoff <-
   theme(legend.position = "top", 
         legend.title = element_blank(),
         text=element_text(family="serif")) +
-  ylab("RMSE / Sesgo / Desvío estándar") + xlab(TeX("$log(\\lambda)$"))
+  ylab("RMSE / Sesgo / Desvío estándar") + xlab(latex2exp::TeX("$log(\\lambda)$"))
 grafico_ridge_tradeoff
 
 
@@ -1067,6 +1247,27 @@ cvfit.error <- cv.glmnet(x = x, y = y, type.measure = "class", alpha=0, family="
 plot(cvfit.error)
 log(cvfit.error$lambda.min)
 
+
+# Modelo seleccionado para suavizado de ponderadores
+# Ajustamos la regresión ridge para el valor que minimiza la varianza
+
+ridge_model <- glmnet(X, y, alpha = 0, lambda = exp(0), family = "binomial")
+
+X_NEA <- individual_NEA %>% select(all_of(regresores),-completo_f)
+X_NEA = model.matrix(completo ~ ., data = X_NEA)[,-1]
+y_NEA = individual_NEA$completo
+
+individual_NEA$pprob_ridge <- predict(ridge_model, newx=X_NEA)
+
+
+# Probabilidades estimadas comparadas
+ggplot(individual_NEA) + 
+  geom_boxplot(aes(nro_rep, pprob_ridge)) + 
+  facet_wrap(AGLO_DESC~.)
+
+ggplot(individual_NEA) + 
+  geom_boxplot(aes(nro_rep, pprob_rf)) + 
+  facet_wrap(AGLO_DESC~.)
 
 
 ## Lasso Regression ---------------------------------------------------------------
@@ -1171,7 +1372,7 @@ ggplot(individual_NEA, aes(nro_rep, prob_completo)) +
   geom_boxplot() + 
   facet_wrap(.~AGLO_DESC)
 
-# Corrección del ponderador
+# Corrección del ponderador ----------------
 
 # Algunos gráficos descriptivos previos para Gran Resistencia
 # Vivienda relevadas por área y período
@@ -1204,18 +1405,36 @@ individual_NEA[, viviendas:= n_distinct(CODUSU), by = .(periodo, area, AGLOMERAD
 hist(individual_NEA$viviendas)
 summary(individual_NEA$viviendas)
 
+# Probabilidad media de respuesta por área
+individual_NEA[, media_prob:= mean(prob_completo,na.rm=T), by = .(periodo, area, AGLOMERADO)]
+
 # Agregamos el total de PONDIH por 'área'
 individual_NEA[, mj:= sum(PONDIH,na.rm=T), by = .(periodo, area, AGLOMERADO)]
+individual_NEA[, mj1:= round(ifelse(prob_completo>0, sum(PONDIH/(prob_completo/media_prob)), sum(PONDIH))), by = .(periodo, area, AGLOMERADO)]
+
+# Reponderación de las áreas
+individual_NEA[, marca_area:= duplicated(area), by = .(periodo, AGLOMERADO)]
+individual_NEA[, freq_mj:= mj/sum(mj[marca_area==F]), by = .(periodo, AGLOMERADO)]
+individual_NEA[, freq_mj1:= mj1/sum(mj1[marca_area==F]), by = .(periodo, AGLOMERADO)]
+hist(individual_NEA$freq_mj)
+hist(individual_NEA$freq_mj1)
+
+# Re-escalamos el PONDIH para mantener el total real por aglomerado
+# (Redistribuimos la representación de cada área)
+individual_NEA[, PONDIH_aglo:= sum(PONDIH), by = .(periodo, AGLOMERADO)]
+individual_NEA[, mj_c:= PONDIH_aglo*freq_mj1, by = .(periodo, AGLOMERADO)]
 hist(individual_NEA$mj)
-summary(individual_NEA$mj)
+hist(individual_NEA$mj_c)
+
+# Reponderamos las viviendas dentro de cada área
+individual_NEA[, PONDIH_c:= round(ifelse(prob_completo>0, PONDIH/(prob_completo/media_prob), PONDIH))]
+individual_NEA[, total_area:=sum(PONDIH_c), by = .(periodo, area, AGLOMERADO)]
+individual_NEA[, freq_vivxarea:= PONDIH_c/total_area, by = .(periodo, area, AGLOMERADO)]
+individual_NEA[, PONDIH_c:= round(mj_c*freq_vivxarea), by = .(periodo, area, AGLOMERADO)]
 
 # Ponderador corregido
-individual_NEA[, media_prob:= mean(prob_completo,na.rm=T), by = .(periodo, area, AGLOMERADO)]
-individual_NEA[, PONDIH_c:= round(ifelse(prob_completo>0, PONDIH/(prob_completo/media_prob), PONDIH))]
-individual_NEA[, mj_c:=sum(PONDIH_c), by = .(periodo, area, AGLOMERADO)]
-individual_NEA[, PONDIH_c:= round(PONDIH_c*(mj/mj_c))]
 hist(individual_NEA$PONDIH)
-hist(individual_NEA$PONDIH_c, add=T, col=2)
+hist(individual_NEA$PONDIH_c)
 
 # PONDIH vs PONDIH corregido
 ggplot(individual_NEA, aes(PONDIH, PONDIH_c)) +
@@ -1247,7 +1466,11 @@ library(expss)
 fre(individual_GR$nro_rep, weight = individual_GR$PONDIH)
 fre(individual_GR$nro_rep, weight = individual_GR$PONDIH_c)
 
-
+individual_NEA %>% 
+  mutate(ajuste=PONDIH_c-PONDIH) %>% 
+  ggplot() + 
+  geom_boxplot(aes(nro_rep, ajuste)) + 
+  facet_wrap(.~AGLO_DESC)
 
 ## Distribuciones de ingreso ####------------------------------------------------
 
@@ -1503,28 +1726,6 @@ resultados_NEA %>%
 
 
 # Pobreza individuos # --------------------------------------------
-individual_NEA_total <- fread("Bases/individual_NEA.txt")
-individual_NEA_total[, periodo:= as.yearqtr(paste0(ANO4,"-",TRIMESTRE))]
-
-# Cruzamos para asignar las probabilidades de respuesta
-individual_NEA_total <- merge.data.table(individual_NEA_total, 
-                                         individual_NEA[,c(3:6,222,252)],
-                                         by = c("CODUSU","NRO_HOGAR","AGLOMERADO","periodo"))
-
-
-# Agregamos el total de PONDIH por 'área'
-individual_NEA_total[, mj:= sum(PONDIH,na.rm=T), by = .(periodo, area, AGLOMERADO)]
-hist(individual_NEA_total$mj)
-summary(individual_NEA_total$mj)
-
-# Ponderador corregido
-individual_NEA_total[, media_prob:= mean(prob_completo,na.rm=T), by = .(periodo, area, AGLOMERADO)]
-individual_NEA_total[, PONDIH_c:= round(ifelse(prob_completo>0, PONDIH/(prob_completo/media_prob), PONDIH))]
-individual_NEA_total[, mj_c:=sum(PONDIH_c), by = .(periodo, area, AGLOMERADO)]
-individual_NEA_total[, PONDIH_c:= round(PONDIH_c*(mj/mj_c))]
-hist(individual_NEA_total$PONDIH)
-hist(individual_NEA_total$PONDIH_c, add=T, col=2)
-
 
 # Pobreza con el cambio de ponderador
 resultados_post <- 
@@ -1560,20 +1761,17 @@ resultados_NEA %>%
   geom_smooth(aes(x = periodo, y = valor, color = tipo_pobreza)) +
   facet_wrap(.~AGLO_DESC)
 
-
-# Vemos probabilidades predichas
-tabla %>% 
-  select(hogar_pobre, AGLO_DESC, fit_rep_1, fit_rep_2, fit_rep_3, fit_rep_4) %>% 
-  pivot_longer(cols=3:6, names_to = "repeticiones", values_to = "prob_predicha") %>% 
-  mutate(hogar_pobre= as.factor(ifelse(hogar_pobre==1, "Pobre", "No pobre"))) %>% 
-  ggplot(aes(x=AGLO_DESC, y = prob_predicha, color=hogar_pobre)) + 
-  geom_point() + 
-  facet_wrap(.~ repeticiones) +
-  xlab("") + 
-  theme_light()
+resultados_NEA %>% 
+  pivot_longer(cols = c(indigencia.x, indigencia.y), names_to = "tipo_pobreza", values_to = "valor") %>% 
+  ggplot() + 
+  geom_line(aes(x = periodo, y = valor, color = tipo_pobreza)) + 
+  geom_smooth(aes(x = periodo, y = valor, color = tipo_pobreza)) +
+  facet_wrap(.~AGLO_DESC)
 
 
-# La chance de ser encuestado 4 veces en lugar de 3 veces para hogares pobres es 1.2 veces la de hogares no pobres 
+
+
+
 
 
 

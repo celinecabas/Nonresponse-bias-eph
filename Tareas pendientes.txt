@@ -1,0 +1,5 @@
+Probar modelo con: 
+- Evolución del ponderador por área vs resultado de pobreza.
+Panel de áreas. Interacción del pondera con la fecha de quiebre en no respuestas.
+- Probar diferencias en distribuciones de ingresos pre y post 2018 para ver si cambian las densidades por debajo de la línea de pobreza.
+- Modelo para explicar la probabilidad de ser pobre en base a la cantidad de respuestas (propensión a responder) y a variables por área como proporción de hogares pobres. Con el objetivo de extrapolar la proporción de pobres cuando el número de respuestas sea 0.
