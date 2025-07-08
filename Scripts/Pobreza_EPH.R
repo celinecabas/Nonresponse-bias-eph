@@ -511,6 +511,7 @@ library(rpart.plot)  # Plot árbol de decisións
 library(stats)       # Medidas de bondad de clasificación
 library(ROCR)        # Para curvas ROC y AUC
 library(performance) # Para curva ROC
+library(LongituRF)   # Para Random Forest con datos longitudinales.
 
 # Indicadora de esquema completo (responde 4 veces)
 individual_NEA[, completo:= ifelse(nro_rep==4, 1, 0)]
@@ -816,7 +817,7 @@ for(i in 1:10){
 
 # Convertir la lista a data.frame
 errores_df <- do.call(rbind, errores_testeo)
-colnames(errores_df) <- paste0("CP_", 1:67)
+colnames(errores_df) <- paste0("CP_", 1:68)
 rownames(errores_df) <- paste0("Fold_", 1:10)
 
 # Mostrar tabla final de errores
@@ -829,7 +830,7 @@ df_errores <- data.table(
   cp = cp,
   error_train = error_train,
   error_test = error_test,
-  error_cv = error_cv[1:67]
+  error_cv = error_cv[1:68]
 )
 
 # Marcamos mínimos en entrenamiento y testeo
@@ -984,6 +985,8 @@ modelo_rf_PS <- randomForest(completo_f ~ . - completo - AGLO_DESC,
                              importance = T, 
                              na.action = na.omit)
 
+individual_PS_test <- individual_PS_test |> select(names(individual_PS_train)) |> na.omit()
+
 # Matriz de confusión
 # Gran Resistencia
 individual_GR_test$pclass_rf <- predict(modelo_rf_GR, newdata=individual_GR_test)
@@ -1074,6 +1077,9 @@ bias_GR <- (mean(as.numeric(individual_GR_test$pclass_rf)) - mean(as.numeric(ind
 bias_CT <- (mean(as.numeric(individual_CT_test$pclass_rf)) - mean(as.numeric(individual_CT_test$completo_f)))^2; bias_CT
 bias_FM <- (mean(as.numeric(individual_FM_test$pclass_rf)) - mean(as.numeric(individual_FM_test$completo_f)))^2; bias_FM
 bias_PS <- (mean(as.numeric(individual_PS_test$pclass_rf)) - mean(as.numeric(individual_PS_test$completo_f)))^2; bias_PS
+
+
+## 3.2. Random Forest con datos longitudinales
 
 
 
@@ -1363,10 +1369,28 @@ log(cvfit.error$lambda.min)
 grafico_ridge_tradeoff + grafico_lasso_tradeoff
 
 # Al momento de elegir el mejor modelo (al final)
-# Guardamos las probabilidades predichas
+# Guardamos las probabilidades predichas (modelo NEA)
 load("Informe y resultados/Modelos_clasificacion.RData") # Provisoriamente
-individual_NEA$prob_completo <- predict(modelo_rf, newdata=individual_NEA, type="prob")[,2]
-hist(individual_NEA$prob_completo)
+individual_NEA$prob_completo1 <- predict(modelo_rf, newdata=individual_NEA, type="prob")[,2]
+hist(individual_NEA$prob_completo1)
+
+ggplot(individual_NEA, aes(nro_rep, prob_completo1)) + 
+  geom_boxplot() + 
+  facet_wrap(.~AGLO_DESC)
+
+# Guardamos probabilidades predichas (modelos por aglomerado)
+# Gran Resistencia
+individual_NEA$prob_completo[individual_NEA$AGLOMERADO==8] <- 
+  predict(modelo_rf_GR, newdata=individual_NEA[individual_NEA$AGLOMERADO==8], type="prob")[,2]
+# Corrientes
+individual_NEA$prob_completo[individual_NEA$AGLOMERADO==12] <- 
+  predict(modelo_rf_CT, newdata=individual_NEA[individual_NEA$AGLOMERADO==12], type="prob")[,2]
+# Formosa
+individual_NEA$prob_completo[individual_NEA$AGLOMERADO==15] <- 
+  predict(modelo_rf_FM, newdata=individual_NEA[individual_NEA$AGLOMERADO==15], type="prob")[,2]
+# Posadas
+individual_NEA$prob_completo[individual_NEA$AGLOMERADO==7] <- 
+  predict(modelo_rf_PS, newdata=individual_NEA[individual_NEA$AGLOMERADO==7], type="prob")[,2]
 
 ggplot(individual_NEA, aes(nro_rep, prob_completo)) + 
   geom_boxplot() + 
@@ -1405,6 +1429,28 @@ individual_NEA[, viviendas:= n_distinct(CODUSU), by = .(periodo, area, AGLOMERAD
 hist(individual_NEA$viviendas)
 summary(individual_NEA$viviendas)
 
+# 1) Ajuste con la función calibrate()
+# Diseño muestral original
+library(survey)
+individual_NEA[, PONDIH_c:= round(ifelse(prob_completo>0 & is.na(prob_completo)==F, PONDIH/(prob_completo/media_prob), PONDIH))]
+disenio_base <- svydesign(ids=~1, data=individual_NEA, strata=~area, weights = ~PONDIH_c)
+
+# We define the calibration formula and the population totals.
+formula <- ~ periodo + AGLO_DESC + area + CH04 + CH06
+T <- apply(model.matrix(formula, data = individual_NEA, weights=individual_NEA$PONDIH), 2, sum)
+
+# Calibration with raking
+calib.logit <- calibrate(disenio_base, formula, population = T, calfun = "logit")
+individual_NEA$pw_logit <- weights(calib.logit)
+
+base_calib <- individual_NEA |> 
+  group_by(periodo, AGLO_DESC, area, CH04, CH06) |> 
+  summarise(freq=sum(PONDIH,na.rm=T)); base_calib
+disenio_calibrado <- calibrate(disenio_base, 
+  formula= ~ periodo + AGLO_DESC + area + CH04 + CH06, 
+  population=base_calib)
+
+# 2) Ajuste a mano
 # Probabilidad media de respuesta por área
 individual_NEA[, media_prob:= mean(prob_completo,na.rm=T), by = .(periodo, area, AGLOMERADO)]
 
@@ -1723,7 +1769,23 @@ resultados_NEA %>%
   theme(legend.position = "bottom") + 
   ylab("") + xlab("")
 
-
+# Pobreza semestral (comparación)
+resultados_NEA %>% 
+  mutate(anio=year(periodo),
+         semestre=ifelse(quarter(periodo) %in% c(1,2), 1, 2)) %>% 
+  mutate(periodo=as.numeric(paste0(anio,semestre))) %>% 
+  group_by(AGLO_DESC, periodo) %>% 
+  summarise(pobreza.x=mean(pobreza.x), pobreza.y=mean(pobreza.y),
+            indigencia.x=mean(indigencia.x), indigencia.y=mean(indigencia.y)) %>% 
+  pivot_longer(cols = c(pobreza.x, pobreza.y), names_to = "tipo_pobreza", values_to = "valor") %>% 
+  ggplot() + 
+  geom_line(aes(x = periodo, y = valor, color = AGLO_DESC)) + 
+  geom_smooth(aes(x = periodo, y = valor, color = AGLO_DESC)) +
+  scale_y_continuous(labels = scales::percent) + 
+  facet_wrap(.~tipo_pobreza, nrow = 2) + 
+  theme_light() + 
+  theme(legend.position = "bottom") + 
+  ylab("") + xlab("")
 
 # Pobreza individuos # --------------------------------------------
 
@@ -1816,28 +1878,6 @@ resultados_pobreza <-
                  by = .(AGLO_DESC, periodo)]
 resultados_pobreza[, pobreza:= hogares_pobres/total_hogares]
 resultados_pobreza[, indigencia:= hogares_indigentes/total_hogares]
-
-t2 <- resultados_pobreza1 %>% filter(AGLO_DESC=="Gran Resistencia")
-
-cbind(t1, t2[,c(6,7)]) %>% 
-  ggplot(aes(periodo, hogares_pobres)) + 
-  geom_bar(stat="identity")
-
-ggplot(resultados_pobreza, aes(periodo,pobreza)) +
-  geom_bar(stat="identity") + 
-  facet_wrap(.~AGLO_DESC) + 
-  theme_minimal() + 
-  ggtitle("Resultados de pobreza") +
-  xlab("") + ylab("") + 
-  stat_smooth()
-
-ggplot(resultados_pobreza, aes(periodo,hogares_indigentes)) +
-  geom_bar(stat="identity") + 
-  facet_wrap(.~AGLO_DESC) + 
-  theme_minimal() +
-  ggtitle("Resultados de indigencia") +
-  xlab("") + ylab("") + 
-  stat_smooth()
               
 
 # Resistencia tiene alta probabilidad de que respondan 1 y 2 veces, al
