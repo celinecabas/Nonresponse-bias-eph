@@ -31,8 +31,14 @@ hogar_NEA[, (names(.SD)) := lapply(.SD, as.factor),
 hogar_NEA[, area:= substr(CODUSU, 1, 8)]
 hogar_NEA[, PONDERA_repr:= sum(PONDERA)/n_distinct(paste0(CODUSU,NRO_HOGAR)),
           by = .(periodo, AGLOMERADO, AGLO_DESC, area)]
-
 hist(hogar_NEA$PONDERA_repr)
+
+# Nro de entrevista
+setorder(hogar_NEA, "CODUSU", "NRO_HOGAR","periodo")
+hogar_NEA[, n:=1]
+hogar_NEA[, n_entrevista:= cumsum(n), by = .(CODUSU, NRO_HOGAR)]
+hogar_NEA$n=NULL
+
 
 # Individual
 individual_NEA <- fread("Bases/individual_NEA.txt")
@@ -40,7 +46,7 @@ individual_NEA[, periodo:= as.yearqtr(paste0(ANO4,"-",TRIMESTRE))]
 
 setnames(hogar_NEA, "CBA", "CBA_hogar")
 setnames(hogar_NEA, "CBT", "CBT_hogar")
-individual_NEA <- merge.data.table(individual_NEA, hogar_NEA[,c(2:6,11,25,66,67,91:92,98,101)],
+individual_NEA <- merge.data.table(individual_NEA, hogar_NEA[,c(2:6,11,25,66,67,91:92,98,101,102)],
                                    by = c("AGLOMERADO", "ANO4", "TRIMESTRE", "CODUSU", "NRO_HOGAR"))
 
 setorder(individual_NEA, CODUSU, NRO_HOGAR, ANO4, TRIMESTRE)
@@ -138,6 +144,15 @@ individual_NEA <- individual_NEA[CH03==1,]
 # Calculamos el identificador por 'área'
 individual_NEA[, area:= substr(CODUSU, 1, 8)]
 
+areas <- individual_NEA |> 
+  group_by(AGLO_DESC, periodo, area) |> 
+  summarise(viviendas=n_distinct(CODUSU)) |> 
+  arrange(AGLO_DESC, periodo) |> 
+  group_by(AGLO_DESC, periodo) |> 
+  summarise(viviendas_mean=mean(viviendas)) |> 
+  ggplot(aes(AGLO_DESC, viviendas_mean)) +
+  geom_boxplot(); areas
+
 # # Medidas resumen por área
 # # Proporción de ocupados
 # individual_NEA[, id_persona:= paste0(CODUSU,NRO_HOGAR,COMPONENTE)]
@@ -160,12 +175,6 @@ individual_NEA[, casadounido:= ifelse(CH07 %in% c(1,2), 1, 0)]
 individual_NEA[, casadpto:= ifelse(IV1 %in% c(1,2), 1, 0)]
 individual_NEA[, leer:= ifelse(CH09==1, 1, 0)]
 individual_NEA[, basural:= ifelse(IV12_1==1, 1, 0)]
-
-# Nro de entrevista
-setorder(individual_NEA, "CODUSU", "NRO_HOGAR","periodo")
-individual_NEA[, n:=1]
-individual_NEA[, n_entrevista:= cumsum(n), by = .(CODUSU, NRO_HOGAR)]
-individual_NEA$n=NULL
 
 
 # Analizamos los períodos a filtrar
@@ -192,6 +201,9 @@ individual_NEA <- subset(individual_NEA,
 # Análisis de estructuras de respuesta # -------------------------------------
 
 # Tablas descriptivas
+tabla1 <- prop.table(table(individual_NEA$AGLO_DESC, individual_NEA$n_entrevista), margin=2)
+tabla1
+
 tabla1 <- prop.table(table(individual_NEA$AGLO_DESC, individual_NEA$nro_rep), margin=2)
 tabla1
 
@@ -219,8 +231,9 @@ tabla2 <- data.frame(Variables = c("NRO_REP ~ hogar_pobre",
 #library(ggthemr)
 #ggthemr("sky")
 
-# Serie de nro de repeticiones por aglomerado
+# Repeticiones por aglomerado
 grafico1 <- individual_NEA %>% 
+  filter(CH03==1) |> 
   mutate(n=1) %>% 
   group_by(periodo, AGLO_DESC, nro_rep) %>% 
   summarise(n=sum(n)) %>% 
@@ -234,8 +247,117 @@ grafico1 <- individual_NEA %>%
   theme_light() + 
   theme(legend.position = "bottom",
         plot.background = element_rect(fill="#fbfbfb"),
-        text = element_text(family="serif"))
-grafico1
+        text = element_text(family="serif")); grafico1
+
+# Repeticiones por aglomerado (ponderado)
+grafico1_ponderado <- individual_NEA %>% 
+  filter(CH03==1) |> 
+  group_by(periodo, AGLO_DESC, nro_rep) %>% 
+  summarise(n=sum(PONDIH, na.rm=T)) %>% 
+  ggplot(aes(periodo, n, fill=as.factor(nro_rep))) +
+  geom_bar(stat = "identity", position = "fill", color="white") +
+  facet_wrap(.~AGLO_DESC, ncol = 2, scales = "free_x") +
+  scale_fill_manual(values=c("#ced2d3","#737373","#22373a","#ff914d")) +
+  scale_x_yearqtr(format="%Y-%qT", expand=c(0,0)) + 
+  xlab("") + ylab("") + 
+  labs(fill="Entrevistas realizadas") +
+  theme_light() + 
+  theme(legend.position = "bottom",
+        plot.background = element_rect(fill="#fbfbfb"),
+        text = element_text(family="serif")); grafico1_ponderado
+
+# Entrevistas por aglomerado
+grafico1_entrevistas <- individual_NEA %>% 
+  filter(CH03==1) |> 
+  mutate(n=1) |> 
+  group_by(periodo, AGLO_DESC, n_entrevista) %>% 
+  summarise(n=sum(n)) %>% 
+  ggplot(aes(periodo, n, fill=as.factor(n_entrevista))) +
+  geom_bar(stat = "identity", position = "fill", color="white") +
+  facet_wrap(.~AGLO_DESC, ncol = 2, scales = "free_x") +
+  scale_fill_manual(values=c("#ced2d3","#737373","#22373a","#ff914d")) +
+  scale_x_yearqtr(format="%Y-%qT", expand=c(0,0)) + 
+  xlab("") + ylab("") + 
+  labs(fill="Entrevistas realizadas") +
+  theme_light() + 
+  theme(legend.position = "bottom",
+        plot.background = element_rect(fill="#fbfbfb"),
+        text = element_text(family="serif")); grafico1_entrevistas
+
+# Entrevistas por aglomerado (ponderado)
+grafico1_entrevistas <- individual_NEA %>% 
+  filter(CH03==1) |> 
+  group_by(periodo, AGLO_DESC, n_entrevista) %>% 
+  summarise(n=sum(PONDIH, na.rm=T)) %>% 
+  ggplot(aes(periodo, n, fill=as.factor(n_entrevista))) +
+  geom_bar(stat = "identity", position = "fill", color="white") +
+  facet_wrap(.~AGLO_DESC, ncol = 2, scales = "free_x") +
+  scale_fill_manual(values=c("#ced2d3","#737373","#22373a","#ff914d")) +
+  scale_x_yearqtr(format="%Y-%qT", expand=c(0,0)) + 
+  xlab("") + ylab("") + 
+  labs(fill="Entrevistas realizadas") +
+  theme_light() + 
+  theme(legend.position = "bottom",
+        plot.background = element_rect(fill="#fbfbfb"),
+        text = element_text(family="serif")); grafico1_entrevistas
+
+# Hogares por aglomerado según número de entrevistas
+grafico1_entrevistas <- individual_NEA %>% 
+  filter(CH03==1) |> 
+  mutate(n=1) |> 
+  group_by(periodo, AGLO_DESC, nro_rep) %>% 
+  summarise(n=sum(n)) %>% 
+  ggplot(aes(periodo, n, fill=as.factor(nro_rep))) +
+  geom_bar(stat = "identity", position = "stack", color="white") +
+  facet_wrap(.~AGLO_DESC, ncol = 2, scales = "free_x") +
+  scale_fill_manual(values=c("#ced2d3","#737373","#22373a","#ff914d")) +
+  scale_x_yearqtr(format="%Y-%qT", expand=c(0,0)) + 
+  xlab("") + ylab("") + 
+  labs(fill="Entrevistas realizadas") +
+  theme_light() + 
+  theme(legend.position = "bottom",
+        plot.background = element_rect(fill="#fbfbfb"),
+        text = element_text(family="serif")); grafico1_entrevistas
+
+
+individual_NEA |> 
+  mutate(ratio = (ITF-CBT_hogar)/CBT_hogar) |> 
+  mutate(n_entrevista=as.factor(n_entrevista)) |> 
+  group_by(AGLO_DESC, CODUSU, NRO_HOGAR, nro_rep) |> 
+  summarise(ratio=mean(ratio), PONDIH=sum(PONDIH,na.rm=T)) |> 
+  filter(ratio<10) |> 
+  ggplot(aes(ratio, color=nro_rep, weight=PONDIH)) + 
+  geom_density() + 
+  facet_wrap(.~AGLO_DESC, ncol = 2, scales = "free_x") +
+  theme_minimal()
+
+individual_NEA |> 
+  group_by(AGLO_DESC, CODUSU, NRO_HOGAR, nro_rep) |> 
+  summarise(logIPCF_d=mean(logIPCF_d), PONDIH=sum(PONDIH,na.rm=T)) |> 
+  ggplot(aes(logIPCF_d, color=nro_rep, weight=PONDIH)) + 
+  geom_boxplot() + 
+  facet_wrap(.~AGLO_DESC, ncol = 2, scales = "free_x") +
+  theme_minimal()
+
+
+library(cobalt)
+data("lalonde", package = "cobalt")
+head(lalonde)
+lalonde |> 
+  mutate(treat=as.factor(treat)) |> 
+  ggplot(aes(age, treat)) +
+  geom_boxplot()
+
+bal.tab(treat ~ age + educ + race + married + nodegree + re74 + re75,
+        data = lalonde, estimand = "ATT", thresholds = c(m = .05))
+
+library(WeightIt)
+W.out <- weightit(treat ~ age + educ + race + married + nodegree + re74 + re75,
+                  data = lalonde, estimand = "ATT", method = "glm")
+W.out #print the output
+summary(W.out)
+lalonde$weights <- W.out$weights
+bal.tab(W.out, stats = c("m", "v"), thresholds = c(m = .05))
 
 # Valores altos de PONDIH y PONDERA
 # Suponemos reponderación por baja tasa de respuesta
@@ -264,8 +386,7 @@ grafico2 <-
   theme(legend.position = "bottom",
         legend.title = element_blank(),
         text = element_text(family="serif")) + 
-  xlab("") + ylab("")
-grafico2
+  xlab("") + ylab(""); grafico2
 
 # Resultados indigencia
 grafico3 <- 
@@ -279,8 +400,7 @@ grafico3 <-
   theme(legend.position = "bottom",
         legend.title = element_blank(),
         text=element_text(family="serif")) +
-  xlab("") + ylab("") 
-grafico3
+  xlab("") + ylab("") ; grafico3
 
 ## MMultinomial para nro rep #### 
 library(mclogit)
@@ -290,7 +410,7 @@ library(VGAM)
 # Modelo para Gran Resistencia
 glm.multi.rcia <- vglm(formula = ordered(nro_rep) ~ logIPCF_d + CH06 + I(CH06^2) + IX_TOT + casadpto + casadounido, 
                        family = cumulative(parallel = TRUE),
-                       data = subset(individual_NEA, AGLO_DESC=="Gran Resistencia"))
+                       data = subset(individual_NEA, AGLO_DESC=="Gran Resistencia" & n_entrevista==1))
 summary(glm.multi.rcia)
 
 # # Test para evaluar bondad de ajuste
@@ -302,17 +422,17 @@ summary(glm.multi.rcia)
 # Modelo para Corrientes
 glm.multi.ctes <- vglm(formula = ordered(nro_rep) ~ logIPCF_d + CH06 + I(CH06^2) + IX_TOT + casadpto + casadounido, 
                        family = cumulative(parallel = TRUE),
-                       data = subset(individual_NEA, AGLO_DESC=="Corrientes"))
+                       data = subset(individual_NEA, AGLO_DESC=="Corrientes" & n_entrevista==1))
 
 # Modelo para Posadas
 glm.multi.psdas <- vglm(formula = ordered(nro_rep) ~ logIPCF_d + CH06 + I(CH06^2) + IX_TOT + casadpto + casadounido, 
                         family = cumulative(parallel = TRUE),
-                        data = subset(individual_NEA, AGLO_DESC=="Posadas"))
+                        data = subset(individual_NEA, AGLO_DESC=="Posadas" & n_entrevista==1))
 
 # Modelo para Formosa
 glm.multi.fmsa <- vglm(formula = ordered(nro_rep) ~ logIPCF_d + CH06 + I(CH06^2) + IX_TOT + casadpto + casadounido, 
                        family = cumulative(parallel = TRUE),
-                       data = subset(individual_NEA, AGLO_DESC=="Formosa"))
+                       data = subset(individual_NEA, AGLO_DESC=="Formosa" & n_entrevista==1))
 
 # Tabla resumen del modelo
 library(modelsummary)
@@ -553,7 +673,7 @@ for (i in unique(individual_NEA$AGLO_DESC)){
 
 # Muestra de entrenamiento
 individual_NEA_train <- individual_NEA_train %>% 
-  select(completo, # Variable de respuesta
+  select(completo, nro_rep, # Variable de respuesta
          # Variables de identificación del hogar
          AGLO_DESC, periodo, PONDERA_repr, viviendasxarea,
          # Ingreso del hogar
@@ -595,11 +715,12 @@ individual_PS_train <- individual_NEA_train[AGLO_DESC=="Posadas"]
 
 
 
-# 1) Modelo logístico --------------------
+# 1. Modelo logístico --------------------
+## 1.1. Binario ------------------------------
 
 # Stepwise
-modelofull <- glm(completo~., data=individual_NEA_train)
-modelonull <- glm(completo~1, data=individual_NEA_train)
+modelofull <- glm(completo~. - nro_rep, data=individual_NEA_train, na.action = na.omit)
+modelonull <- glm(completo~1 - nro_rep, data=individual_NEA_train, na.action = na.omit)
 
 # Cantidad posible de modelos (841)
 steplogit <- step(modelonull,
@@ -636,6 +757,7 @@ cm_logit <- confusionMatrix(table(individual_NEA_test$completo,
 cm_logit
 
 # Curva ROC
+individual_NEA_test <- individual_NEA_test |> filter(is.na(pclass_logit)==F)
 pred.logit <- ROCR::prediction(individual_NEA_test$pclass_logit, individual_NEA_test$completo) #solo cambia el formato del objeto para que sea soportable por la función performance
 perf.logit <- ROCR::performance (pred.logit, measure="tpr", x.measure="fpr") #guarda los valores de TPR (sensibilidad) y FPR (1-especificidad)
 plot(perf.logit, main = "Curva ROC", ylab = "Sensibilidad", xlab = "1-especificidad") # grafica la curva ROC
@@ -668,6 +790,10 @@ medidas$cv.error <- cv.error
 # cv_error <- cv.glm(data=individual_NEA_train, glmfit = modelo_logit)
 # cv_error$delta
 
+
+## 1.2. Multinomial
+
+modelo_multi <- vglm()
 
 
 
@@ -906,14 +1032,58 @@ ggplot(var_importance, aes(x = reorder(Variable, Importancia), y = Importancia))
 # 3. Random Forest  --------------
 library(randomForest)
 
-# Ajustamos el modelo
 set.seed(123)
-modelo_rf <- randomForest(completo_f ~ . - completo, 
-                          data = individual_NEA_train, 
-                          importance = T, 
-                          na.action = na.omit)
 
-# Matriz de confusión
+# Tibble para guardar resultados
+modelos_rf <- tibble(
+  periodo = character(),
+  AGLO_DESC = character(),
+  modelo = list()
+)
+
+# Ajuste de modelos por período y aglomerado
+for (i in unique(individual_NEA_train$AGLO_DESC)){
+  for (j in as.character(unique(individual_NEA_train[AGLO_DESC==i]$periodo))){
+    # Ponderadores
+    base <- subset(individual_NEA_train, periodo==j & AGLO_DESC==i)
+    # Modelo ajustado
+      modelo_rf <- randomForest(
+        nro_rep ~ . - completo - periodo - completo_f - AGLO_DESC, 
+        data = base,
+        importance = T, 
+        na.action = na.omit)
+    # Almacenado en tibble
+    fila <- tibble(periodo=j, AGLO_DESC=i, modelo=list(modelo_rf))
+    modelos_rf <- bind_rows(modelos_rf, fila)
+    rm(modelo_rf, fila)
+  }
+}
+
+# Predicciones y matriz de confusión
+for (i in unique(individual_NEA_train$AGLO_DESC)){
+  for (j in as.character(unique(individual_NEA_train[AGLO_DESC==i]$periodo))){
+    # Predicción de clase
+    prediccion_class <- predict(
+      object = modelos_rf$modelo[modelos_rf$periodo==j & modelos_rf$AGLO_DESC==i],
+      newdata = individual_NEA_test[individual_NEA_test$AGLO_DESC==i & individual_NEA_test$periodo==j,],
+      type = "class"
+    )
+    # Predicción de probabilidad
+    prediccion_prob <- predict(
+      object = modelos_rf$modelo[modelos_rf$periodo==j & modelos_rf$AGLO_DESC==i],
+      newdata = individual_NEA_test[individual_NEA_test$AGLO_DESC==i & individual_NEA_test$periodo==j,],
+      type="prob"
+    )[,2]
+    # Guardamos resultados
+    individual_NEA_test$pclass_rf[
+      individual_NEA_test$AGLO_DESC==i & individual_NEA_test$periodo==j,
+    ] <- prediccion_class
+    individual_NEA_test$pprob_rf[
+      individual_NEA_test$AGLO_DESC==i & individual_NEA_test$periodo==j,
+    ] <- prediccion_prob
+  }
+}
+
 individual_NEA_test$pclass_rf <- predict(modelo_rf, newdata=individual_NEA_test, type="class")
 individual_NEA_test$pprob_rf <- predict(modelo_rf, newdata=individual_NEA_test, type="prob")[,2]
 cm_rf <- confusionMatrix(table(individual_NEA_test$completo_f, individual_NEA_test$pclass_rf), positive = "1")
@@ -1077,10 +1247,6 @@ bias_GR <- (mean(as.numeric(individual_GR_test$pclass_rf)) - mean(as.numeric(ind
 bias_CT <- (mean(as.numeric(individual_CT_test$pclass_rf)) - mean(as.numeric(individual_CT_test$completo_f)))^2; bias_CT
 bias_FM <- (mean(as.numeric(individual_FM_test$pclass_rf)) - mean(as.numeric(individual_FM_test$completo_f)))^2; bias_FM
 bias_PS <- (mean(as.numeric(individual_PS_test$pclass_rf)) - mean(as.numeric(individual_PS_test$completo_f)))^2; bias_PS
-
-
-## 3.2. Random Forest con datos longitudinales
-
 
 
 # 4) XGBoost  --------------------------------------
@@ -1892,6 +2058,4 @@ resultados_pobreza[, indigencia:= hogares_indigentes/total_hogares]
 # Guardamos resultados
 save(tabla1, tabla2, grafico1, grafico2, grafico3, modelos_panel, modelos.glm.multi,
      file = "Informe y resultados/Resultados.RData")
-
-
 
