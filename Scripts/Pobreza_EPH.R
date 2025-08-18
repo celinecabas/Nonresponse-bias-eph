@@ -340,25 +340,6 @@ individual_NEA |>
   theme_minimal()
 
 
-library(cobalt)
-data("lalonde", package = "cobalt")
-head(lalonde)
-lalonde |> 
-  mutate(treat=as.factor(treat)) |> 
-  ggplot(aes(age, treat)) +
-  geom_boxplot()
-
-bal.tab(treat ~ age + educ + race + married + nodegree + re74 + re75,
-        data = lalonde, estimand = "ATT", thresholds = c(m = .05))
-
-library(WeightIt)
-W.out <- weightit(treat ~ age + educ + race + married + nodegree + re74 + re75,
-                  data = lalonde, estimand = "ATT", method = "glm")
-W.out #print the output
-summary(W.out)
-lalonde$weights <- W.out$weights
-bal.tab(W.out, stats = c("m", "v"), thresholds = c(m = .05))
-
 # Valores altos de PONDIH y PONDERA
 # Suponemos reponderación por baja tasa de respuesta
 individual_NEA %>% 
@@ -623,6 +604,7 @@ save(res.boot.GR, res.boot.Ctes, res.boot.Fmsa, res.boot.Psdas, tabla_boot,
 
 
 
+
 # Modelos alternativos para probabilidades predichas -----------------------------
 
 library(caret)       # Para matriz de confusión y validación cruzada
@@ -712,7 +694,10 @@ individual_PS_test <- individual_NEA_test[AGLO_DESC=="Posadas",]
 individual_PS_train <- individual_NEA_train[AGLO_DESC=="Posadas"]
 
 
-
+# Guardamos la base de datos
+fwrite(individual_NEA, "Bases/individual_NEA_paramodelos.txt", sep = ";", bom=T, encoding = 'UTF-8')
+fwrite(individual_NEA_train, "Bases/individual_NEA_train_paramodelos.txt", sep = ";", bom=T, encoding = 'UTF-8')
+fwrite(individual_NEA_test, "Bases/individual_NEA_test_paramodelos.txt", sep = ";", bom=T, encoding = 'UTF-8')
 
 
 # 1. Modelo logístico --------------------
@@ -789,11 +774,6 @@ medidas$cv.error <- cv.error
 # Cross validation (Leave-One-Out)
 # cv_error <- cv.glm(data=individual_NEA_train, glmfit = modelo_logit)
 # cv_error$delta
-
-
-## 1.2. Multinomial
-
-modelo_multi <- vglm()
 
 
 

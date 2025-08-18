@@ -115,6 +115,8 @@ individual <- merge.data.table(individual, hogar[,c(1:5,95,96)],
                                by = c("ANO4","TRIMESTRE","AGLOMERADO","CODUSU","NRO_HOGAR"))
 
 
+individual_NEA[, n:=n_distinct(CODUSU), by = .(ANO4, TRIMESTRE, AGLOMERADO, AGLO_DESC)]
+
 # Analizamos el NEA
 hogar_NEA <- hogar %>% filter(REGION==41)
 hogar_NEA %>% distinct(AGLOMERADO,AGLO_DESC)
