@@ -1026,12 +1026,19 @@ for (i in unique(individual_NEA_train$AGLO_DESC)){
   for (j in as.character(unique(individual_NEA_train[AGLO_DESC==i]$periodo))){
     # Ponderadores
     base <- subset(individual_NEA_train, periodo==j & AGLO_DESC==i)
+    
+    # Pesos para equilibrar
+    wn = sum(base$completo)/nrow(base)
+    wy = 1
+
     # Modelo ajustado
       modelo_rf <- randomForest(
-        nro_rep ~ . - completo - periodo - completo_f - AGLO_DESC, 
+        completo_f ~ . - nro_rep - completo - periodo - AGLO_DESC, 
         data = base,
         importance = T, 
-        na.action = na.omit)
+        na.action = na.omit, 
+        classwt = c("1"=wn, "0"=1)
+      )
     # Almacenado en tibble
     fila <- tibble(periodo=j, AGLO_DESC=i, modelo=list(modelo_rf))
     modelos_rf <- bind_rows(modelos_rf, fila)
@@ -1047,13 +1054,13 @@ for (i in unique(individual_NEA_train$AGLO_DESC)){
       object = modelos_rf$modelo[modelos_rf$periodo==j & modelos_rf$AGLO_DESC==i],
       newdata = individual_NEA_test[individual_NEA_test$AGLO_DESC==i & individual_NEA_test$periodo==j,],
       type = "class"
-    )
+    )[[1]]
     # Predicción de probabilidad
     prediccion_prob <- predict(
       object = modelos_rf$modelo[modelos_rf$periodo==j & modelos_rf$AGLO_DESC==i],
       newdata = individual_NEA_test[individual_NEA_test$AGLO_DESC==i & individual_NEA_test$periodo==j,],
       type="prob"
-    )[,2]
+    )[[1]][,2]
     # Guardamos resultados
     individual_NEA_test$pclass_rf[
       individual_NEA_test$AGLO_DESC==i & individual_NEA_test$periodo==j,
@@ -1063,6 +1070,7 @@ for (i in unique(individual_NEA_train$AGLO_DESC)){
     ] <- prediccion_prob
   }
 }
+
 
 individual_NEA_test$pclass_rf <- predict(modelo_rf, newdata=individual_NEA_test, type="class")
 individual_NEA_test$pprob_rf <- predict(modelo_rf, newdata=individual_NEA_test, type="prob")[,2]
@@ -1516,11 +1524,15 @@ grafico_ridge_tradeoff + grafico_lasso_tradeoff
 
 # Al momento de elegir el mejor modelo (al final)
 # Guardamos las probabilidades predichas (modelo NEA)
-load("Informe y resultados/Modelos_clasificacion.RData") # Provisoriamente
-individual_NEA$prob_completo1 <- predict(modelo_rf, newdata=individual_NEA, type="prob")[,2]
-hist(individual_NEA$prob_completo1)
+# load("Informe y resultados/Modelos_clasificacion.RData") # Provisoriamente
+# individual_NEA$prob_completo1 <- predict(modelo_rf, newdata=individual_NEA, type="prob")[,2]
+# hist(individual_NEA$prob_completo1)
 
-ggplot(individual_NEA, aes(nro_rep, prob_completo1)) + 
+individual_NEA = fread("Bases/individual_NEA_with_probs.csv", encoding = "UTF-8")
+setnames(individual_NEA, "prob_rf", "prob_completo")
+individual_NEA[, nro_rep:= as.factor(nro_rep)]
+
+ggplot(individual_NEA, aes(nro_rep, prob_completo)) + 
   geom_boxplot() + 
   facet_wrap(.~AGLO_DESC)
 
