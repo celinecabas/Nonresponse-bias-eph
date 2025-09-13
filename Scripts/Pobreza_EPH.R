@@ -613,7 +613,6 @@ library(rpart.plot)  # Plot árbol de decisións
 library(stats)       # Medidas de bondad de clasificación
 library(ROCR)        # Para curvas ROC y AUC
 library(performance) # Para curva ROC
-library(LongituRF)   # Para Random Forest con datos longitudinales.
 
 # Indicadora de esquema completo (responde 4 veces)
 individual_NEA[, completo:= ifelse(nro_rep==4, 1, 0)]
@@ -655,6 +654,7 @@ for (i in unique(individual_NEA$AGLO_DESC)){
 
 # Muestra de entrenamiento
 individual_NEA_train <- individual_NEA_train %>% 
+  filter(n_entrevista==1) |> 
   select(completo, nro_rep, # Variable de respuesta
          # Variables de identificación del hogar
          AGLO_DESC, periodo, PONDERA_repr, viviendasxarea,
@@ -664,9 +664,9 @@ individual_NEA_train <- individual_NEA_train %>%
          CH06, CH06_2, IX_TOT, informal, NIVEL_ED, mujer, 
          casadounido, ESTADO, CAT_INAC, CAT_OCUP,
          # Características de la vivienda
-         IV1, IV2, IV3, IV4, IV5, IV6, IV7, IV8, IV9, IV10, IV11, IV12_1, IV12_2, IV12_3, 
+         IV1, IV2, IV3, IV5, IV6, IV7, IV8, IV9, IV10, IV11, IV12_1, IV12_2, IV12_3, 
          # Características habitacionales del hogar
-         II1, II2, II3, II3_1, II4_1, II4_2, II4_3, II5, II6, II6_1, II7, II8, II9, 
+         II1, II2, II3, II4_1, II4_2, II4_3, II5, II6, II7, II8, II9, 
          # Ocupación del jefe de hogar
          CALIFICACION, JERARQUIA, caes_seccion_cod, PP04B1,
          # Características de composición del hogar
@@ -704,21 +704,63 @@ fwrite(individual_NEA_test, "Bases/individual_NEA_test_paramodelos.txt", sep = "
 ## 1.1. Binario ------------------------------
 
 # Stepwise
-modelofull <- glm(completo~. - nro_rep, data=individual_NEA_train, na.action = na.omit)
-modelonull <- glm(completo~1 - nro_rep, data=individual_NEA_train, na.action = na.omit)
 
-# Cantidad posible de modelos (841)
-steplogit <- step(modelonull,
-                  scope = list(lower=modelonull, upper=modelofull),
-                  direction = "forward")
-steplogit$formula
+modelos_logit <- list()
 
-modelo_logit <- glm(formula=steplogit$formula, 
-                    data=individual_NEA_train, 
-                    family = binomial(link="logit"))
+for (i in unique(individual_NEA_train$AGLO_DESC)){
+
+  # Definimos pesos
+  df <- subset(individual_NEA_train, AGLO_DESC==i)
+  df$weights <- ifelse(df$completo == 1, 1/table(df$completo)[2], 1/table(df$completo)[1])
+  df <- df %>% select(where(~n_distinct(.) > 1))
+
+  # Modelo full
+  modelofull <- glm(
+    completo ~ . - nro_rep - weights, 
+    data=df, 
+    family = binomial(link="logit"),
+    na.action = na.omit
+  )
+
+  # Modelo null
+  modelonull <- glm(
+    completo ~ 1 - nro_rep - weights, 
+    data=df, 
+    family = binomial(link="logit"),
+    na.action = na.omit
+  )
+
+  # Stepwise
+  steplogit <- step(modelonull,
+                    scope = list(lower=modelonull, upper=modelofull),
+                    direction = "both")
+
+  # Ajustamos modelo
+  modelo_logit <- glm(
+    formula=steplogit$formula, 
+    data=df, 
+    na.action = na.omit,
+    family = binomial(link="logit"),
+    weights = df$weights
+  )
+
+  # Guardamos el modelo
+  modelos_logit[[i]] <- modelo_logit
+
+}
+
+# save(modelos_logit, file="Scripts/modelos_logit.RData")
 summary(modelo_logit)
 
 # Probabilidad predicha
+predicciones <- data.table()
+for (i in unique(individual_NEA_test$AGLO_DESC)){
+  modelo <- modelos_logit[[i]]
+  base <- individual_NEA_test[individual_NEA_test$AGLO_DESC==i]
+  base$pprob_logit <- predict.glm(modelo, newdata = base, type="response")
+  predicciones <- rbindlist(list(predicciones, base))
+}
+
 individual_NEA_test$pprob_logit <- predict.glm(modelo_logit, newdata = individual_NEA_test)
 
 # Óptimo punto de corte
@@ -1016,20 +1058,18 @@ set.seed(123)
 
 # Tibble para guardar resultados
 modelos_rf <- tibble(
-  periodo = character(),
   AGLO_DESC = character(),
   modelo = list()
 )
 
-# Ajuste de modelos por período y aglomerado
+# Ajuste de modelos por aglomerado
 for (i in unique(individual_NEA_train$AGLO_DESC)){
-  for (j in as.character(unique(individual_NEA_train[AGLO_DESC==i]$periodo))){
+
     # Ponderadores
-    base <- subset(individual_NEA_train, periodo==j & AGLO_DESC==i)
+    base <- subset(individual_NEA_train, AGLO_DESC==i)
     
     # Pesos para equilibrar
     wn = sum(base$completo)/nrow(base)
-    wy = 1
 
     # Modelo ajustado
       modelo_rf <- randomForest(
@@ -1040,40 +1080,37 @@ for (i in unique(individual_NEA_train$AGLO_DESC)){
         classwt = c("1"=wn, "0"=1)
       )
     # Almacenado en tibble
-    fila <- tibble(periodo=j, AGLO_DESC=i, modelo=list(modelo_rf))
+    fila <- tibble(AGLO_DESC=i, modelo=list(modelo_rf))
     modelos_rf <- bind_rows(modelos_rf, fila)
     rm(modelo_rf, fila)
   }
-}
 
 # Predicciones y matriz de confusión
 for (i in unique(individual_NEA_train$AGLO_DESC)){
-  for (j in as.character(unique(individual_NEA_train[AGLO_DESC==i]$periodo))){
     # Predicción de clase
     prediccion_class <- predict(
-      object = modelos_rf$modelo[modelos_rf$periodo==j & modelos_rf$AGLO_DESC==i],
-      newdata = individual_NEA_test[individual_NEA_test$AGLO_DESC==i & individual_NEA_test$periodo==j,],
+      object = modelos_rf$modelo[modelos_rf$AGLO_DESC==i],
+      newdata = individual_NEA_test[individual_NEA_test$AGLO_DESC==i,],
       type = "class"
     )[[1]]
     # Predicción de probabilidad
     prediccion_prob <- predict(
-      object = modelos_rf$modelo[modelos_rf$periodo==j & modelos_rf$AGLO_DESC==i],
-      newdata = individual_NEA_test[individual_NEA_test$AGLO_DESC==i & individual_NEA_test$periodo==j,],
+      object = modelos_rf$modelo[modelos_rf$AGLO_DESC==i],
+      newdata = individual_NEA_test[individual_NEA_test$AGLO_DESC==i,],
       type="prob"
     )[[1]][,2]
     # Guardamos resultados
     individual_NEA_test$pclass_rf[
-      individual_NEA_test$AGLO_DESC==i & individual_NEA_test$periodo==j,
+      individual_NEA_test$AGLO_DESC==i
     ] <- prediccion_class
     individual_NEA_test$pprob_rf[
-      individual_NEA_test$AGLO_DESC==i & individual_NEA_test$periodo==j,
+      individual_NEA_test$AGLO_DESC==i
     ] <- prediccion_prob
   }
-}
 
-
-individual_NEA_test$pclass_rf <- predict(modelo_rf, newdata=individual_NEA_test, type="class")
-individual_NEA_test$pprob_rf <- predict(modelo_rf, newdata=individual_NEA_test, type="prob")[,2]
+#individual_NEA_test$pclass_rf <- predict(modelo_rf, newdata=individual_NEA_test, type="class")
+#individual_NEA_test$pprob_rf <- predict(modelo_rf, newdata=individual_NEA_test, type="prob")[,2]
+individual_NEA_test$pclass_rf <- as.factor(individual_NEA_test$pclass_rf)
 cm_rf <- confusionMatrix(table(individual_NEA_test$completo_f, individual_NEA_test$pclass_rf), positive = "1")
 cm_rf
 
